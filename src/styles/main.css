@@ -1,0 +1,225 @@
+/* ==========================================================
+   全站设计 Token & 基础样式
+   主色: 暖橙 #ff6b35 (贯穿全站, 并覆盖 Element Plus 主色)
+   ========================================================== */
+:root {
+  /* -- 品牌色 -- */
+  --brand-primary: #ff6b35;
+  --brand-primary-dark: #e5521f;
+  --brand-primary-light: #ff8c5f;
+  --brand-primary-bg: #fff3ec;
+  --brand-gradient: linear-gradient(120deg, #ff8c5f 0%, #ff6b35 60%, #f5551f 100%);
+
+  /* -- 功能色 -- */
+  --brand-success: #00b578;
+  --brand-warning: #ff9f0a;
+  --brand-danger: #f53f3f;
+
+  /* -- 文字三级灰 -- */
+  --text-1: #1f2329;
+  --text-2: #4e5969;
+  --text-3: #86909c;
+
+  /* -- 背景与卡片 -- */
+  --bg-page: #f5f6f8;
+  --bg-card: #ffffff;
+  --bg-soft: #f7f8fa;
+
+  /* -- 圆角 -- */
+  --radius-card: 16px;
+  --radius-control: 8px;
+  --radius-tag: 4px;
+
+  /* -- 阴影(静态/悬浮两级) -- */
+  --shadow-card: 0 2px 12px rgba(31, 35, 41, 0.05);
+  --shadow-card-hover: 0 8px 24px rgba(31, 35, 41, 0.12);
+  --shadow-pop: 0 6px 20px rgba(31, 35, 41, 0.12);
+
+  /* -- 间距刻度 -- */
+  --space-1: 8px;
+  --space-2: 12px;
+  --space-3: 16px;
+  --space-4: 24px;
+
+  /* -- 过渡 -- */
+  --transition-base: 0.25s ease;
+
+  /* -- 旧变量别名(历史页面兼容) -- */
+  --spark-primary: var(--brand-primary);
+  --spark-bg: var(--bg-page);
+
+  /* -- Element Plus 主色覆盖(按钮/输入框/链接/分页等全组件跟随) -- */
+  --el-color-primary: #ff6b35;
+  --el-color-primary-dark-2: #e5521f;
+  --el-color-primary-light-3: #ff8c5f;
+  --el-color-primary-light-5: #ffa686;
+  --el-color-primary-light-7: #ffc0ab;
+  --el-color-primary-light-8: #ffd3c5;
+  --el-color-primary-light-9: #fff0e8;
+  --el-color-success: #00b578;
+  --el-color-warning: #ff9f0a;
+  --el-color-danger: #f53f3f;
+  --el-color-error: #f53f3f;
+  --el-text-color-primary: #1f2329;
+  --el-text-color-regular: #4e5969;
+  --el-text-color-secondary: #86909c;
+  --el-text-color-placeholder: #a9b0b8;
+  --el-border-radius-base: 8px;
+  --el-border-radius-small: 6px;
+  --el-box-shadow-light: var(--shadow-card);
+  --el-font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+    'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--el-font-family);
+  background: var(--bg-page);
+  color: var(--text-1);
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+img {
+  display: block;
+  max-width: 100%;
+}
+
+/* 通用容器宽度 */
+.container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 16px;
+}
+
+/* ==========================================================
+   Element Plus 组件统一微调(弹窗/表格/下拉均为 body 挂载, 需全局生效)
+   ========================================================== */
+
+/* ---------- 卡片 ---------- */
+.el-card {
+  border: none;
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  transition: box-shadow var(--transition-base), transform var(--transition-base);
+}
+.el-card:hover {
+  box-shadow: var(--shadow-card-hover);
+}
+
+/* ---------- 弹窗 ---------- */
+.el-dialog {
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-pop);
+  overflow: hidden;
+}
+.el-dialog__header {
+  padding: 20px 24px 16px;
+  margin-right: 0;
+}
+.el-dialog__title {
+  position: relative;
+  padding-left: 12px;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-1);
+}
+/* 标题主色竖条装饰 */
+.el-dialog__title::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 4px;
+  height: 16px;
+  border-radius: 2px;
+  background: var(--brand-primary);
+}
+.el-dialog__body {
+  padding: 8px 24px 20px;
+}
+.el-dialog__footer {
+  padding: 12px 24px 20px;
+  border-top: 1px solid #f0f1f3;
+}
+
+/* ---------- 表格: 去边框感 + 行 hover 高亮 ---------- */
+.el-table {
+  --el-table-border-color: #f0f1f3;
+  --el-table-header-bg-color: #fafbfc;
+  --el-table-header-text-color: var(--text-2);
+  --el-table-row-hover-bg-color: #fff7f3;
+  border-radius: var(--radius-control);
+}
+.el-table th.el-table__cell {
+  font-weight: 600;
+}
+.el-table .el-table__cell {
+  padding: 10px 0;
+}
+/* 表头圆角贴合 */
+.el-table--border,
+.el-table--border::after,
+.el-table::before {
+  border-color: #f0f1f3;
+}
+
+/* ---------- 下拉/气泡: 统一圆角阴影 ---------- */
+.el-dropdown-menu,
+.el-select-dropdown,
+.el-picker-panel,
+.el-message-box {
+  border-radius: 12px;
+  box-shadow: var(--shadow-pop);
+}
+.el-dropdown-menu__item {
+  border-radius: 6px;
+  margin: 2px 6px;
+  padding: 7px 12px;
+  transition: background-color var(--transition-base), color var(--transition-base);
+}
+
+/* ---------- 标签/按钮 ---------- */
+.el-tag {
+  border-radius: var(--radius-tag);
+}
+.el-button {
+  transition: all var(--transition-base);
+}
+
+/* ---------- 空状态 ---------- */
+.el-empty {
+  padding: 40px 0;
+}
+
+/* ---------- 统一滚动条(细腻) ---------- */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: #d5d9de;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #c2c7cd;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
