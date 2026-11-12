@@ -89,9 +89,10 @@ export const getProductDetail = (id: number) =>
 export const getProductsByMerchant = (id: number) =>
   http.get<Product[]>(`/product/merchant/${id}`)
 
-/** GET /merchant/product/list 商家商品列表(含下架商品,需商家登录), 返回分页数据(total/records) */
-export const getMerchantProductList = () =>
-  http.get<PageData<MerchantProduct>>('/merchant/product/list')
+/** GET /merchant/product/list 商家商品列表(含下架商品,需商家登录), 可按名称/分类筛选, 返回分页数据(total/records) */
+export const getMerchantProductList = (
+  params: { page?: number; size?: number; name?: string; categoryId?: number } = {}
+) => http.get<PageData<MerchantProduct>>('/merchant/product/list', params)
 
 /** POST /merchant/product 商家新增商品 */
 export const addMerchantProduct = (data: MerchantProductParams) =>

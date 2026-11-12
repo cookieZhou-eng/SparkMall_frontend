@@ -1,10 +1,10 @@
 <template>
   <div v-loading="loading" class="profile">
-    <!-- 顶部渐变横幅卡片 -->
+    <!-- 顶部: 用户横幅(白底 + 品牌渐变顶线 + 星火装饰) -->
     <div v-if="profile" class="banner">
       <el-avatar
         :src="resolveImageUrl(profile.avatar) || undefined"
-        :size="88"
+        :size="80"
         class="banner-avatar"
       >
         {{ avatarText }}
@@ -12,14 +12,15 @@
       <div class="banner-meta">
         <div class="name-row">
           <span class="nickname">{{ profile.nickname || profile.username }}</span>
-          <el-tag :class="isMerchant ? 'role-tag merchant' : 'role-tag customer'" size="small" effect="light" round>
-            {{ isMerchant ? '商家' : '顾客' }}
+          <el-tag class="role-tag" size="small" effect="plain" round>
+            {{ isMerchant ? '商家' : '会员' }}
           </el-tag>
         </div>
-        <div class="meta-line">注册时间:{{ profile.createTime || '—' }}</div>
+        <div class="meta-line">
+          {{ profile.username }} · 注册于 {{ (profile.createTime || '').replace('T', ' ').slice(0, 10) }}
+        </div>
         <template v-if="isMerchant">
-          <div class="meta-line shop-line">🏪 {{ profile.shopName || '未设置店铺名' }}</div>
-          <div class="meta-line shop-desc">{{ profile.shopDesc || '暂无店铺简介' }}</div>
+          <div class="meta-line shop-line">{{ profile.shopName || '未设置店铺名' }}</div>
         </template>
       </div>
       <div class="banner-actions">
@@ -27,62 +28,187 @@
       </div>
     </div>
 
-    <!-- 账户信息区块 -->
-    <div v-if="profile" class="section">
-      <div class="section-head">
-        <h3 class="section-title">账户信息</h3>
-        <div class="section-ops">
-          <el-button text type="primary" :icon="Switch" @click="router.push('/switch-account')">切换账号</el-button>
-          <el-button text :icon="Lock" @click="openPwd">修改密码</el-button>
-          <el-link type="info" :underline="false" class="forgot-link" @click="openForgot">忘记密码?</el-link>
+    <!-- 主体: 左侧分类导航 + 右侧内容面板 -->
+    <div class="main">
+      <!-- 左侧分类列表(参考主流电商个人中心) -->
+      <aside class="side">
+        <div class="side-brand">
+          <span class="spark-mark">✦</span>星火会员中心
         </div>
-      </div>
-      <div class="field-grid">
-        <div class="field">
-          <span class="field-label">用户名</span>
-          <span class="field-value">{{ profile.username }}</span>
-        </div>
-        <div class="field">
-          <span class="field-label">昵称</span>
-          <span class="field-value">{{ profile.nickname || '未设置' }}</span>
-        </div>
-        <div class="field">
-          <span class="field-label">手机号</span>
-          <span class="field-value">{{ profile.phone || '未绑定' }}</span>
-        </div>
-        <div class="field">
-          <span class="field-label">邮箱</span>
-          <span class="field-value">{{ profile.email || '未设置' }}</span>
-        </div>
-        <div class="field">
-          <span class="field-label">性别</span>
-          <span class="field-value">{{ genderText(profile.gender) }}</span>
-        </div>
-        <div class="field">
-          <span class="field-label">注册时间</span>
-          <span class="field-value">{{ profile.createTime || '—' }}</span>
-        </div>
-      </div>
-    </div>
+        <nav class="menu">
+          <a
+            class="menu-item"
+            :class="{ active: activeMenu === 'info' }"
+            @click="activeMenu = 'info'"
+          >
+            <el-icon><User /></el-icon>我的资料
+          </a>
+          <a
+            class="menu-item"
+            :class="{ active: activeMenu === 'orders' }"
+            @click="activeMenu = 'orders'"
+          >
+            <el-icon><Tickets /></el-icon>我的订单
+          </a>
+          <a
+            class="menu-item"
+            :class="{ active: activeMenu === 'follows' }"
+            @click="activeMenu = 'follows'"
+          >
+            <el-icon><Star /></el-icon>收藏的商家
+            <span v-if="follows.length" class="menu-count">{{ follows.length }}</span>
+          </a>
 
-    <!-- 店铺信息区块(仅商家) -->
-    <div v-if="profile && isMerchant" class="section">
-      <div class="section-head">
-        <h3 class="section-title">店铺信息</h3>
-        <div class="section-ops">
-          <el-button text type="primary" :icon="EditPen" @click="openEdit">修改资料</el-button>
-        </div>
-      </div>
-      <div class="field-grid">
-        <div class="field">
-          <span class="field-label">店铺名称</span>
-          <span class="field-value">{{ profile.shopName || '未设置' }}</span>
-        </div>
-        <div class="field field--full">
-          <span class="field-label">店铺简介</span>
-          <span class="field-value">{{ profile.shopDesc || '未设置' }}</span>
-        </div>
-      </div>
+          <div class="menu-divider" />
+          <a class="menu-item" @click="router.push('/address')">
+            <el-icon><Location /></el-icon>收货地址
+          </a>
+          <a class="menu-item" @click="router.push('/refunds')">
+            <el-icon><ChatDotRound /></el-icon>退款/售后
+          </a>
+
+          <div class="menu-divider" />
+          <a class="menu-item" @click="openPwd">
+            <el-icon><Lock /></el-icon>修改密码
+          </a>
+          <a class="menu-item" @click="router.push('/switch-account')">
+            <el-icon><Switch /></el-icon>切换账号
+          </a>
+        </nav>
+      </aside>
+
+      <!-- 右侧内容面板 -->
+      <section class="content">
+        <!-- ============ 我的资料 ============ -->
+        <template v-if="activeMenu === 'info'">
+          <div v-if="profile" class="section">
+            <div class="section-head">
+              <h3 class="section-title">账户信息</h3>
+              <div class="section-ops">
+                <el-button text :icon="Lock" @click="openPwd">修改密码</el-button>
+                <el-link type="info" :underline="false" class="forgot-link" @click="openForgot">忘记密码?</el-link>
+              </div>
+            </div>
+            <div class="field-grid">
+              <div class="field">
+                <span class="field-label">用户名</span>
+                <span class="field-value">{{ profile.username }}</span>
+              </div>
+              <div class="field">
+                <span class="field-label">昵称</span>
+                <span class="field-value">{{ profile.nickname || '未设置' }}</span>
+              </div>
+              <div class="field">
+                <span class="field-label">手机号</span>
+                <span class="field-value">{{ profile.phone || '未绑定' }}</span>
+              </div>
+              <div class="field">
+                <span class="field-label">邮箱</span>
+                <span class="field-value">{{ profile.email || '未设置' }}</span>
+              </div>
+              <div class="field">
+                <span class="field-label">性别</span>
+                <span class="field-value">{{ genderText(profile.gender) }}</span>
+              </div>
+              <div class="field">
+                <span class="field-label">注册时间</span>
+                <span class="field-value">{{ (profile.createTime || '—').replace('T', ' ').slice(0, 16) }}</span>
+              </div>
+            </div>
+          </div>
+
+          <div v-if="profile && isMerchant" class="section">
+            <div class="section-head">
+              <h3 class="section-title">店铺信息</h3>
+              <div class="section-ops">
+                <el-button text type="primary" :icon="EditPen" @click="openEdit">修改资料</el-button>
+              </div>
+            </div>
+            <div class="field-grid">
+              <div class="field">
+                <span class="field-label">店铺名称</span>
+                <span class="field-value">{{ profile.shopName || '未设置' }}</span>
+              </div>
+              <div class="field field--full">
+                <span class="field-label">店铺简介</span>
+                <span class="field-value">{{ profile.shopDesc || '未设置' }}</span>
+              </div>
+            </div>
+          </div>
+        </template>
+
+        <!-- ============ 我的订单(状态概览) ============ -->
+        <template v-else-if="activeMenu === 'orders'">
+          <div class="section orders-panel">
+            <div class="section-head">
+              <h3 class="section-title">我的订单</h3>
+              <el-link type="primary" :underline="false" @click="goOrders()">
+                全部订单<el-icon><ArrowRight /></el-icon>
+              </el-link>
+            </div>
+            <div class="status-grid">
+              <a class="status-cell" @click="goOrders(1)">
+                <span class="status-num">{{ orderCounts.paid }}</span>
+                <span class="status-label">待付款</span>
+              </a>
+              <a class="status-cell" @click="goOrders(2)">
+                <span class="status-num">{{ orderCounts.shipped }}</span>
+                <span class="status-label">待发货</span>
+              </a>
+              <a class="status-cell" @click="goOrders(3)">
+                <span class="status-num">{{ orderCounts.received }}</span>
+                <span class="status-label">待收货</span>
+              </a>
+              <a class="status-cell" @click="goOrders(4)">
+                <span class="status-num">{{ orderCounts.reviewed }}</span>
+                <span class="status-label">待评价</span>
+              </a>
+              <a class="status-cell" @click="router.push('/refunds')">
+                <span class="status-num">{{ refundCount }}</span>
+                <span class="status-label">退款/售后</span>
+              </a>
+            </div>
+            <div class="orders-footer" @click="goOrders()">查看全部订单<el-icon><ArrowRight /></el-icon></div>
+          </div>
+        </template>
+
+        <!-- ============ 收藏的商家 ============ -->
+        <template v-else>
+          <div class="section follows-panel">
+            <div class="section-head">
+              <h3 class="section-title">收藏的商家</h3>
+              <span class="follows-total">共 {{ follows.length }} 家</span>
+            </div>
+            <div v-loading="followsLoading">
+              <div v-if="follows.length" class="follow-list">
+                <div v-for="m in follows" :key="m.merchantId" class="follow-row">
+                  <el-avatar
+                    :src="resolveImageUrl(m.avatar) || undefined"
+                    :size="52"
+                    class="follow-avatar"
+                  >
+                    {{ (m.shopName || m.username || '店').charAt(0) }}
+                  </el-avatar>
+                  <div class="follow-meta">
+                    <div class="follow-name" @click="router.push(`/shop/${m.merchantId}`)">
+                      {{ m.shopName || m.username }}
+                    </div>
+                    <div class="follow-desc">{{ m.shopDesc || '商家暂未填写店铺简介' }}</div>
+                    <div class="follow-time">收藏于 {{ formatTime(m.followTime) }}</div>
+                  </div>
+                  <div class="follow-ops">
+                    <el-button size="small" round @click="router.push(`/shop/${m.merchantId}`)">进店逛逛</el-button>
+                    <el-button size="small" text type="danger" @click="unfollow(m)">取消收藏</el-button>
+                  </div>
+                </div>
+              </div>
+              <el-empty v-else-if="!followsLoading" description="还没有收藏的商家,逛逛店铺收藏一下吧">
+                <el-button type="primary" round @click="router.push('/home')">去逛逛</el-button>
+              </el-empty>
+            </div>
+          </div>
+        </template>
+      </section>
     </div>
 
     <!-- 修改资料弹窗 -->
@@ -198,11 +324,25 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onUnmounted, reactive, ref } from 'vue'
+import { computed, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { EditPen, Lock, Switch } from '@element-plus/icons-vue'
+import {
+  ArrowRight, ChatDotRound, EditPen, Location, Lock, Star, Switch, Tickets, User
+} from '@element-plus/icons-vue'
+import { ElMessage } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
-import { resetPassword, sendSmsCode, updatePassword, updateProfile, type UserVO } from '@/api/user'
+import {
+  getFollowedMerchants,
+  resetPassword,
+  sendSmsCode,
+  unfollowMerchant,
+  updatePassword,
+  updateProfile,
+  type FollowedMerchantVO,
+  type UserVO
+} from '@/api/user'
+import { getMyOrders, type Order } from '@/api/order'
+import { getMyRefunds } from '@/api/refund'
 import { resolveImageUrl, uploadImage } from '@/api/upload'
 import type { UploadRequestOptions } from 'element-plus'
 import { useUserStore } from '@/stores/user'
@@ -212,6 +352,9 @@ const userStore = useUserStore()
 
 const profile = ref<UserVO | null>(null)
 const loading = ref(false)
+
+/** 当前激活的左侧导航面板 */
+const activeMenu = ref<'info' | 'orders' | 'follows'>('info')
 
 const isMerchant = computed(() => profile.value?.role === 'merchant')
 const avatarText = computed(() => {
@@ -236,14 +379,87 @@ function toGenderValue(g: number | string | null | undefined): number {
   return n === 1 || n === 2 ? n : 0
 }
 
-/** 加载个人信息(经由 store 同步持久化 role) */
+/** 加载个人信息(经由 store 同步持久化 role), 完成后加载订单概览 */
 async function load() {
   loading.value = true
   try {
     profile.value = await userStore.fetchUserInfo()
+    await Promise.all([loadOrderOverview(), loadRefundCount()])
+    if (activeMenu.value === 'follows') loadFollows()
   } finally {
     loading.value = false
   }
+}
+
+// ============ 我的订单概览(状态计数) ============
+const myOrders = ref<Order[]>([])
+const refundCount = ref(0)
+
+/** 订单状态计数: 待付款(1) 待发货(2) 待收货(3) 待评价(已完成且存在未评价明细) */
+const orderCounts = computed(() => {
+  const count = { paid: 0, shipped: 0, received: 0, reviewed: 0 }
+  myOrders.value.forEach((o) => {
+    if (o.status === 1) count.paid++
+    else if (o.status === 2) count.shipped++
+    else if (o.status === 3) count.received++
+    else if (o.status === 4 && (o.items || []).some((it) => !it.reviewed)) count.reviewed++
+  })
+  return count
+})
+
+async function loadOrderOverview() {
+  if (!profile.value?.id) return
+  try {
+    myOrders.value = await getMyOrders(profile.value.id)
+  } catch {
+    // 概览加载失败不阻塞页面
+  }
+}
+
+async function loadRefundCount() {
+  try {
+    const data = await getMyRefunds(1, 1)
+    refundCount.value = data.total
+  } catch {
+    // 静默
+  }
+}
+
+/** 跳转订单列表(可带状态筛选) */
+function goOrders(status?: number) {
+  router.push(status ? { path: '/orders', query: { status: String(status) } } : '/orders')
+}
+
+// ============ 收藏的商家 ============
+const follows = ref<FollowedMerchantVO[]>([])
+const followsLoading = ref(false)
+
+async function loadFollows() {
+  followsLoading.value = true
+  try {
+    follows.value = await getFollowedMerchants()
+  } catch {
+    // 拦截器已弹错误
+  } finally {
+    followsLoading.value = false
+  }
+}
+
+/** 取消收藏后刷新列表(后端幂等, 前端直接移除即可) */
+async function unfollow(m: FollowedMerchantVO) {
+  await unfollowMerchant(m.merchantId)
+  follows.value = follows.value.filter((f) => f.merchantId !== m.merchantId)
+  ElMessage.success(`已取消收藏「${m.shopName || m.username}」`)
+}
+
+/** 切到"收藏的商家"面板时懒加载列表 */
+watch(activeMenu, (menu) => {
+  if (menu === 'follows') loadFollows()
+})
+
+/** 时间格式化: ISO 字符串 → "YYYY-MM-DD HH:mm" */
+function formatTime(t: string | null | undefined): string {
+  return (t || '—').replace('T', ' ').slice(0, 16)
 }
 
 // ============ 修改资料 ============
@@ -453,36 +669,48 @@ load()
   gap: var(--space-3);
 }
 
-/* ---------- 渐变横幅 ---------- */
+/* ---------- 用户横幅(白底 + 品牌渐变顶线 + 星火水印) ---------- */
 .banner {
   position: relative;
   display: flex;
   align-items: center;
   gap: 24px;
-  padding: 28px 32px;
+  padding: 26px 32px;
   border-radius: var(--radius-card);
-  background: var(--brand-gradient);
+  background: var(--bg-card);
+  border: 1px solid #eceef1;
+  box-shadow: var(--shadow-card);
   overflow: hidden;
-  color: #fff;
 }
-/* 柔光装饰 */
-.banner::after {
+/* 顶线: 一条 3px 品牌渐变, 低调点出"星火"品牌色 */
+.banner::before {
   content: '';
   position: absolute;
-  right: -60px;
-  top: -80px;
-  width: 220px;
-  height: 220px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.12);
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: var(--brand-gradient);
+}
+/* 星火水印: 右侧四角星形, 极低透明度不抢信息 */
+.banner::after {
+  content: '✦';
+  position: absolute;
+  right: 96px;
+  top: -34px;
+  font-size: 150px;
+  line-height: 1;
+  color: var(--brand-primary);
+  opacity: 0.05;
+  transform: rotate(18deg);
   pointer-events: none;
 }
 .banner-avatar {
   flex-shrink: 0;
-  border: 3px solid rgba(255, 255, 255, 0.9);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
-  font-size: 32px;
-  background: rgba(255, 255, 255, 0.25);
+  border: 1px solid #e8ebef;
+  background: var(--bg-soft);
+  color: var(--text-2);
+  font-size: 26px;
 }
 .banner-meta {
   flex: 1;
@@ -496,86 +724,150 @@ load()
 }
 .nickname {
   font-size: 22px;
-  font-weight: 700;
+  font-weight: 600;
+  color: var(--text-1);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .role-tag {
-  border: none;
-}
-.role-tag.customer {
-  background: rgba(255, 255, 255, 0.28);
-  color: #fff;
-}
-.role-tag.merchant {
-  background: rgba(31, 35, 41, 0.32);
-  color: #ffe0c2;
+  background: var(--brand-primary-bg);
+  color: var(--brand-primary);
 }
 .meta-line {
   font-size: 13px;
-  opacity: 0.92;
+  color: var(--text-3);
   line-height: 1.9;
 }
 .shop-line {
   font-size: 14px;
-  font-weight: 600;
-}
-.shop-desc {
-  max-width: 560px;
-  opacity: 0.85;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-weight: 500;
+  color: var(--text-2);
 }
 .banner-actions {
   flex-shrink: 0;
 }
 .banner-actions :deep(.el-button) {
-  color: #fff;
-  background: rgba(255, 255, 255, 0.18);
-  border-radius: 999px;
+  border-radius: var(--radius-control);
   padding: 10px 18px;
 }
-.banner-actions :deep(.el-button:hover) {
-  background: rgba(255, 255, 255, 0.3);
+
+/* ---------- 主体两栏 ---------- */
+.main {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+
+/* 左侧分类导航 */
+.side {
+  flex-shrink: 0;
+  width: 208px;
+  padding: var(--space-3) 12px;
+  background: var(--bg-card);
+  border: 1px solid #eceef1;
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  position: sticky;
+  top: 76px;
+}
+.side-brand {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  color: var(--text-2);
+  border-bottom: 1px solid #f0f1f3;
+}
+.spark-mark {
+  color: var(--brand-primary);
+  font-size: 14px;
+}
+.menu {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 8px;
+}
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 10px;
+  border-radius: var(--radius-control);
+  font-size: 14px;
+  color: var(--text-2);
+  cursor: pointer;
+  transition: background-color var(--transition-base), color var(--transition-base);
+}
+.menu-item:hover {
+  color: var(--brand-primary);
+  background: var(--brand-primary-bg);
+}
+.menu-item.active {
+  color: var(--brand-primary);
+  background: var(--brand-primary-bg);
+  font-weight: 600;
+}
+.menu-item .el-icon {
+  font-size: 16px;
+}
+.menu-count {
+  margin-left: auto;
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--brand-primary-bg);
+  color: var(--brand-primary);
+  font-size: 12px;
+  line-height: 18px;
+  text-align: center;
+}
+.menu-divider {
+  height: 1px;
+  margin: 8px 10px;
+  background: #f0f1f3;
+}
+
+/* 右侧内容面板 */
+.content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
 }
 
 /* ---------- 分区块卡片 ---------- */
 .section {
   background: var(--bg-card);
   border-radius: var(--radius-card);
+  border: 1px solid #eceef1;
   box-shadow: var(--shadow-card);
   padding: 20px 24px;
-  transition: box-shadow var(--transition-base);
-}
-.section:hover {
-  box-shadow: var(--shadow-card-hover);
 }
 .section-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #f0f1f3;
 }
 .section-title {
-  position: relative;
   margin: 0;
-  padding-left: 10px;
   font-size: 16px;
   font-weight: 600;
   color: var(--text-1);
 }
-.section-title::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 4px;
-  height: 14px;
-  border-radius: 2px;
-  background: var(--brand-primary);
+.section-head :deep(.el-link) {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 13px;
 }
 .section-ops {
   display: flex;
@@ -623,6 +915,114 @@ load()
   white-space: nowrap;
 }
 
+/* ---------- 订单状态概览(数字在上/标签在下, 等分栅格) ---------- */
+.status-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+}
+.status-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 18px 0 14px;
+  border-radius: var(--radius-control);
+  cursor: pointer;
+  transition: background-color var(--transition-base);
+}
+.status-cell:hover {
+  background: var(--bg-soft);
+}
+.status-num {
+  font-size: 26px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-1);
+  line-height: 1.1;
+}
+.status-label {
+  font-size: 13px;
+  color: var(--text-3);
+}
+.orders-footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  margin-top: 12px;
+  padding: 12px 0 4px;
+  border-top: 1px solid #f0f1f3;
+  font-size: 13px;
+  color: var(--text-3);
+  cursor: pointer;
+  transition: color var(--transition-base);
+}
+.orders-footer:hover {
+  color: var(--brand-primary);
+}
+
+/* ---------- 收藏的商家列表 ---------- */
+.follows-total {
+  font-size: 13px;
+  color: var(--text-3);
+}
+.follow-list {
+  display: flex;
+  flex-direction: column;
+}
+.follow-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 4px;
+  border-bottom: 1px solid #f0f1f3;
+}
+.follow-row:last-child {
+  border-bottom: none;
+}
+.follow-avatar {
+  flex-shrink: 0;
+  border: 1px solid #e8ebef;
+  background: var(--bg-soft);
+  color: var(--text-2);
+  font-size: 20px;
+}
+.follow-meta {
+  flex: 1;
+  min-width: 0;
+}
+.follow-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-1);
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.follow-name:hover {
+  color: var(--brand-primary);
+}
+.follow-desc {
+  margin-top: 2px;
+  font-size: 13px;
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.follow-time {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+.follow-ops {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
 /* ---------- 弹窗内部 ---------- */
 .code-row {
   display: flex;
@@ -650,5 +1050,23 @@ load()
 }
 .url-input {
   flex: 1;
+}
+
+/* 窄屏: 左侧导航折叠为横向条 */
+@media (max-width: 860px) {
+  .main {
+    flex-direction: column;
+  }
+  .side {
+    width: 100%;
+    position: static;
+  }
+  .menu {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+  .menu-divider {
+    display: none;
+  }
 }
 </style>

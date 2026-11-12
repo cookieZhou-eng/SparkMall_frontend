@@ -2,11 +2,12 @@
   <div class="cart">
     <h2 class="title">🛒 我的购物车</h2>
 
-    <!-- 购物车列表: 支持勾选要结算的商品 -->
+    <!-- 购物车列表: 支持勾选要结算的商品; 失效商品不可勾选 -->
     <el-table
       v-if="cart.length"
       :data="cart"
       row-key="id"
+      :selectable="isSelectable"
       @selection-change="onSelection"
     >
       <el-table-column type="selection" width="48" />
@@ -18,32 +19,37 @@
                 <div class="thumb-fallback">🎁</div>
               </template>
             </el-image>
-            <span class="pname">{{ row.name }}</span>
+            <div class="prod-info">
+              <span class="pname">{{ row.name }}</span>
+              <el-tag v-if="!row.valid" type="info" size="small">已下架</el-tag>
+              <span v-else-if="row.stock <= 0" class="stock-warn">库存不足</span>
+            </div>
           </div>
         </template>
       </el-table-column>
       <el-table-column label="单价(¥)" width="120">
-        <template #default="{ row }">{{ row.price.toFixed(2) }}</template>
+        <template #default="{ row }">{{ Number(row.price || 0).toFixed(2) }}</template>
       </el-table-column>
       <el-table-column label="数量" width="180">
         <template #default="{ row }">
           <el-input-number
             v-model="row.quantity"
             :min="1"
-            :max="99"
+            :max="Math.max(row.stock, 1)"
+            :disabled="!row.valid"
             size="small"
-            @change="sync"
+            @change="() => sync(row)"
           />
         </template>
       </el-table-column>
       <el-table-column label="小计(¥)" width="120">
         <template #default="{ row }">
-          {{ (row.price * row.quantity).toFixed(2) }}
+          {{ (Number(row.price || 0) * row.quantity).toFixed(2) }}
         </template>
       </el-table-column>
       <el-table-column label="操作" width="100">
-        <template #default="{ $index }">
-          <el-button type="danger" size="small" @click="remove($index)">删除</el-button>
+        <template #default="{ row }">
+          <el-button type="danger" size="small" @click="remove(row)">删除</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -74,7 +80,13 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { getCart, saveCart, removeCartItems, type CartItem } from '@/utils/cart'
+import {
+  getCart,
+  updateCartItemCount,
+  deleteCartItem,
+  removeCartItems,
+  type CartItem
+} from '@/utils/cart'
 import { resolveImageUrl } from '@/api/upload'
 import { useUserStore } from '@/stores/user'
 import PaymentDialog from '@/components/PaymentDialog.vue'
@@ -86,28 +98,42 @@ const cart = ref<CartItem[]>([])
 // 当前勾选(结算)的商品行
 const selected = ref<CartItem[]>([])
 
+function isSelectable(row: any) {
+  return row.valid && row.stock > 0
+}
+
 function onSelection(rows: CartItem[]) {
   selected.value = rows
 }
 
 // 勾选商品汇总成下单条目
 const selectedItems = computed(() =>
-  selected.value.map((i) => ({ productId: i.id, count: i.quantity }))
+  selected.value.map((i) => ({ productId: i.productId, count: i.quantity }))
 )
 
 // 勾选商品应付金额
 const selectedTotal = computed(() =>
-  selected.value.reduce((sum, item) => sum + item.price * item.quantity, 0)
+  selected.value.reduce((sum, item) => sum + Number(item.price || 0) * item.quantity, 0)
 )
 
-// 数量变化后回写 localStorage
-function sync() {
-  saveCart(cart.value)
+/** 重新拉取购物车(数量/删除/结算后都以后端为准) */
+async function loadCart() {
+  cart.value = await getCart()
+  selected.value = []
 }
 
-function remove(index: number) {
-  cart.value.splice(index, 1)
-  saveCart(cart.value)
+/** 数量变化后同步到后端; 失败时回滚为后端最新数据 */
+async function sync(row: any) {
+  try {
+    await updateCartItemCount(row.id, row.quantity)
+  } catch {
+    await loadCart()
+  }
+}
+
+async function remove(row: any) {
+  await deleteCartItem(row.id)
+  await loadCart()
 }
 
 // ============ 结算(可选勾选商品结算) ============
@@ -134,15 +160,13 @@ function checkout() {
  * 支付成功后: 把已下单的商品从购物车移除(其余未结算的保留),
  * 然后跳转订单列表。拆单时 orders 为多个订单, 汇总其商品后一并清理。
  */
-function onPaid(orders: { items: { productId: number }[] }[]) {
-  removeCartItems(orders.flatMap((o) => o.items.map((it) => it.productId)))
-  cart.value = getCart()
+async function onPaid(orders: { items: { productId: number }[] }[]) {
+  await removeCartItems(orders.flatMap((o) => o.items.map((it) => it.productId)))
+  await loadCart()
   router.push('/orders')
 }
 
-onMounted(() => {
-  cart.value = getCart()
-})
+onMounted(loadCart)
 </script>
 
 <style scoped>
@@ -190,6 +214,12 @@ onMounted(() => {
   justify-content: center;
   font-size: 24px;
 }
+.prod-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
 .pname {
   font-size: 14px;
   color: var(--text-1);
@@ -198,6 +228,10 @@ onMounted(() => {
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
+}
+.stock-warn {
+  font-size: 12px;
+  color: var(--danger, #f56c6c);
 }
 .footer {
   display: flex;

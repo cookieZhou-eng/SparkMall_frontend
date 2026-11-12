@@ -14,6 +14,44 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '注册' }
   },
   {
+    path: '/admin',
+    component: () => import('@/layouts/AdminLayout.vue'),
+    redirect: '/admin/dashboard',
+    meta: { requiresAuth: true, requiresAdmin: true },
+    children: [
+      {
+        path: 'dashboard',
+        name: 'AdminDashboard',
+        component: () => import('@/views/AdminDashboard.vue'),
+        meta: { title: '数据看板', requiresAuth: true, requiresAdmin: true }
+      },
+      {
+        path: 'users',
+        name: 'AdminUsers',
+        component: () => import('@/views/AdminUsers.vue'),
+        meta: { title: '用户管理', requiresAuth: true, requiresAdmin: true }
+      },
+      {
+        path: 'products',
+        name: 'AdminProducts',
+        component: () => import('@/views/AdminProducts.vue'),
+        meta: { title: '商品管理', requiresAuth: true, requiresAdmin: true }
+      },
+      {
+        path: 'orders',
+        name: 'AdminOrders',
+        component: () => import('@/views/AdminOrders.vue'),
+        meta: { title: '订单管理', requiresAuth: true, requiresAdmin: true }
+      },
+      {
+        path: 'refunds',
+        name: 'AdminRefunds',
+        component: () => import('@/views/AdminRefunds.vue'),
+        meta: { title: '退款审核', requiresAuth: true, requiresAdmin: true }
+      }
+    ]
+  },
+  {
     path: '/',
     component: () => import('@/layouts/MainLayout.vue'),
     redirect: '/home',
@@ -59,6 +97,12 @@ const routes: RouteRecordRaw[] = [
         name: 'Orders',
         component: () => import('@/views/OrderList.vue'),
         meta: { title: '我的订单', requiresAuth: true }
+      },
+      {
+        path: 'refunds',
+        name: 'Refunds',
+        component: () => import('@/views/RefundList.vue'),
+        meta: { title: '退款/售后', requiresAuth: true }
       },
       {
         path: 'order/:id',
@@ -174,10 +218,15 @@ router.beforeEach((to, _from, next) => {
     next({ path: '/home' })
     return
   }
+  // 管理端路由(meta.requiresAdmin)要求 role=admin, 否则回首页
+  if (to.meta.requiresAdmin && getLocalRole() !== 'admin') {
+    next({ path: '/home' })
+    return
+  }
   // 已登录用户访问登录页 → 直接回首页,避免重复登录;
   // 但带 add=1 时是"添加账号"场景, 需放行登录页
   if (to.path === '/login' && valid && to.query.add !== '1') {
-    next({ path: '/home' })
+    next({ path: getLocalRole() === 'admin' ? '/admin/dashboard' : '/home' })
     return
   }
   next()

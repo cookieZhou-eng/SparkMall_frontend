@@ -72,6 +72,10 @@ export interface MerchantVO {
   createTime: string | null
   /** 累计销售额(仅商家信息接口返回, 已支付订单商品金额合计) */
   totalSales?: number | null
+  /** 累计销售量(仅商家信息接口返回, 已支付订单商品件数合计) */
+  totalSalesCount?: number | null
+  /** 好评率(百分比 0~100, 全部商品评价中 4~5 星占比; 无评价时为 null) */
+  positiveRate?: number | null
 }
 
 /** POST /user/register 注册 */
@@ -108,3 +112,29 @@ export const getMerchantInfo = (id: number) =>
 /** GET /user/merchant/search 搜索商家(keyword 为空返回前 20 个商家, 便于"逛店铺") */
 export const searchMerchants = (keyword?: string) =>
   http.get<MerchantVO[]>('/user/merchant/search', { keyword })
+
+/** 已收藏商家(个人中心"收藏的商家"列表项) */
+export interface FollowedMerchantVO {
+  merchantId: number
+  username: string
+  shopName: string | null
+  shopDesc: string | null
+  avatar: string | null
+  followTime: string | null
+}
+
+/** POST /user/follow/{merchantId} 收藏商家(幂等, 重复收藏不报错) */
+export const followMerchant = (merchantId: number) =>
+  http.post<null>(`/user/follow/${merchantId}`)
+
+/** DELETE /user/follow/{merchantId} 取消收藏(幂等) */
+export const unfollowMerchant = (merchantId: number) =>
+  http.delete<null>(`/user/follow/${merchantId}`)
+
+/** GET /user/follow/{merchantId}/status 是否已收藏该商家(未登录返回 false) */
+export const isFollowedMerchant = (merchantId: number) =>
+  http.get<boolean>(`/user/follow/${merchantId}/status`)
+
+/** GET /user/follow/list 我的收藏商家列表(按收藏时间倒序) */
+export const getFollowedMerchants = () =>
+  http.get<FollowedMerchantVO[]>('/user/follow/list')

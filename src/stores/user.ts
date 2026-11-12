@@ -22,6 +22,8 @@ export const useUserStore = defineStore('user', () => {
   const isLoggedIn = computed(() => !!token.value)
   /** 是否商家角色(菜单/路由守卫用) */
   const isMerchant = computed(() => userInfo.value?.role === 'merchant')
+  /** 是否管理员角色(后台入口/路由守卫用) */
+  const isAdmin = computed(() => userInfo.value?.role === 'admin')
 
   /** 登录:调接口拿 token,持久化,并拉取完整用户信息(含 role) */
   async function login(params: LoginParams) {
@@ -61,7 +63,7 @@ export const useUserStore = defineStore('user', () => {
     localStorage.removeItem('userInfo')
   }
 
-  return { token, userInfo, isLoggedIn, isMerchant, login, fetchUserInfo, logout }
+  return { token, userInfo, isLoggedIn, isMerchant, isAdmin, login, fetchUserInfo, logout }
 })
 
 /** 安全的 JSON 解析工具,null/异常都返回 null */

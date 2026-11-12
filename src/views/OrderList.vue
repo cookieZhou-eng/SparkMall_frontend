@@ -1,15 +1,45 @@
 <template>
   <div class="orders">
-    <h2 class="title">📦 我的订单</h2>
+    <div class="head">
+      <h2 class="title">我的订单</h2>
+      <p class="head-desc">查看订单状态与物流进度</p>
+    </div>
 
-    <!-- 状态筛选: 切换时带 status 参数重新请求(1/2/3/4/5, 全部不传) -->
-    <el-tabs v-model="activeStatus" class="status-tabs" @tab-change="onStatusChange">
-      <el-tab-pane label="全部" name="all" />
-      <el-tab-pane label="待付款" name="1" />
-      <el-tab-pane label="待发货" name="2" />
-      <el-tab-pane label="待收货" name="3" />
-      <el-tab-pane label="已完成" name="4" />
-      <el-tab-pane label="已取消" name="5" />
+    <!-- 状态筛选: 全部订单一次加载, 前端筛选并统计各状态数量(用于红点角标) -->
+    <el-tabs v-model="activeStatus" class="status-tabs">
+      <el-tab-pane name="all">
+        <template #label><span class="tab-label">全部</span></template>
+      </el-tab-pane>
+      <el-tab-pane name="1">
+        <template #label>
+          <span class="tab-label">
+            待付款<el-badge v-if="statusCount[1]" :value="statusCount[1]" class="tab-badge" />
+          </span>
+        </template>
+      </el-tab-pane>
+      <el-tab-pane name="2">
+        <template #label>
+          <span class="tab-label">
+            待发货<el-badge v-if="statusCount[2]" :value="statusCount[2]" class="tab-badge" />
+          </span>
+        </template>
+      </el-tab-pane>
+      <el-tab-pane name="3">
+        <template #label>
+          <span class="tab-label">
+            待收货<el-badge v-if="statusCount[3]" :value="statusCount[3]" class="tab-badge" />
+          </span>
+        </template>
+      </el-tab-pane>
+      <el-tab-pane name="4">
+        <template #label><span class="tab-label">已完成</span></template>
+      </el-tab-pane>
+      <el-tab-pane name="5">
+        <template #label><span class="tab-label">已取消</span></template>
+      </el-tab-pane>
+      <el-tab-pane name="6">
+        <template #label><span class="tab-label">已退款</span></template>
+      </el-tab-pane>
     </el-tabs>
 
     <div v-if="orders.length" class="order-list">
@@ -24,11 +54,19 @@
             class="countdown"
             :class="{ urgent: (remaining[o.id] ?? 0) < 60 }"
           >
-            ⏳ {{ format(remaining[o.id] ?? 0) }}
+            {{ format(remaining[o.id] ?? 0) }}
           </span>
           <el-tag :type="orderStatusType[o.status]" size="small" class="status-tag">
             {{ orderStatusText[o.status] }}
           </el-tag>
+          <!-- 售后进度: 订单本身仍是原状态, 这里额外展示最近一次退款申请状态 -->
+          <el-tag
+            v-if="o.refundStatus && o.status !== 6"
+            :type="refundStatusType[o.refundStatus] || 'info'"
+            size="small"
+            effect="plain"
+            class="refund-tag"
+          >售后·{{ refundStatusText[o.refundStatus] }}</el-tag>
         </div>
 
         <!-- 商品明细(含每件商品的物流状态) -->
@@ -40,9 +78,9 @@
             title="查看商品详情"
             @click="goProduct(item)"
           >
-            <el-image :src="item.productImage" fit="cover" class="thumb" lazy>
+            <el-image :src="resolveImageUrl(item.productImage)" fit="cover" class="thumb" lazy>
               <template #error>
-                <div class="thumb-fallback">🎁</div>
+                <div class="thumb-fallback">暂无图片</div>
               </template>
             </el-image>
             <div class="goods-info">
@@ -56,6 +94,22 @@
               class="buy-again"
               @click.stop="buyAgain(item)"
             >再次购买</el-button>
+            <!-- 已完成订单: 每件商品提供评价入口, 已评价展示标签 -->
+            <el-button
+              v-if="o.status === 4 && !item.reviewed"
+              type="primary"
+              link
+              size="small"
+              class="eval-btn"
+              @click.stop="goReview(o, item)"
+            >评价</el-button>
+            <el-tag
+              v-else-if="o.status === 4 && item.reviewed"
+              type="success"
+              size="small"
+              effect="plain"
+              class="eval-tag"
+            >已评价</el-tag>
             <el-tag
               :type="logisticsStatusType[item.logisticsStatus ?? 0] ?? 'info'"
               size="small"
@@ -77,9 +131,9 @@
           </div>
           <div class="foot-ops">
             <el-button type="primary" link @click="goDetail(o)">详情</el-button>
-            <!-- 已支付订单: 查看物流时间线 -->
+            <!-- 已支付/已发货/已完成订单: 查看物流时间线(已取消/已退款不展示) -->
             <el-button
-              v-if="o.status !== 1 && o.status !== 5"
+              v-if="[2, 3, 4].includes(o.status)"
               type="success"
               link
               @click="openLogistics(o)"
@@ -89,7 +143,24 @@
               <el-button type="warning" link @click="goPay(o)">去支付</el-button>
               <el-button type="danger" link @click="confirmCancel(o)">取消</el-button>
             </template>
-            <!-- 已发货(status=3): 确认收货 -->
+            <!-- 已支付/已发货/已完成: 没有进行中的退款申请时可申请退款(退货) -->
+            <el-button
+              v-if="[2, 3, 4].includes(o.status) && !isRefundActive(o)"
+              type="warning"
+              link
+              @click="goRefund(o)"
+            >退款/退货</el-button>
+            <!-- 有进行中的退款申请: 引导到退款记录页查看进度, 避免重复提交 -->
+            <el-button
+              v-else-if="isRefundActive(o)"
+              type="warning"
+              link
+              @click="goRefundList"
+            >退款进度</el-button>
+            <!-- 已退款订单: 查看退款记录 -->
+            <el-button v-if="o.status === 6" type="info" link @click="goRefundList">
+              退款详情
+            </el-button>
             <el-button
               v-if="o.status === 3"
               type="success"
@@ -111,7 +182,7 @@
     />
 
     <!-- 物流时间线弹窗: 打开后每 10 秒轮询刷新, 关闭即清除定时器 -->
-    <el-dialog v-model="logVisible" title="🚚 物流跟踪" width="520px" @closed="stopLogPolling">
+    <el-dialog v-model="logVisible" title="物流跟踪" width="520px" @closed="stopLogPolling">
       <template v-if="logOrder">
         <el-steps :active="logStep" align-center finish-status="success">
           <el-step title="提交订单" :description="formatTime(logOrder.createTime)" />
@@ -137,7 +208,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import {
   getMyOrders,
   cancelOrder,
@@ -150,16 +221,41 @@ import {
   type Order
 } from '@/api/order'
 import { useUserStore } from '@/stores/user'
+import { resolveImageUrl } from '@/api/upload'
 import { useCountdown } from '@/composables/useCountdown'
 import PaymentDialog from '@/components/PaymentDialog.vue'
 import { addToCart } from '@/utils/cart'
+import { refundStatusText, refundStatusType } from '@/api/refund'
 
+const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
-const orders = ref<Order[]>([])
 
-/** 当前状态筛选: 'all' 或后端状态值 1/2/3/4/5 */
-const activeStatus = ref<string>('all')
+/** 全部订单(一次性加载, 各状态页签在前端筛选, 同时用于角标统计) */
+const allOrders = ref<Order[]>([])
+
+/** 当前状态筛选: 'all' 或后端状态值 1/2/3/4/5(支持 ?status= 携带进入, 如个人中心概览点击) */
+const activeStatus = ref<string>(
+  ['all', '1', '2', '3', '4', '5', '6'].includes(String(route.query.status))
+    ? String(route.query.status)
+    : 'all'
+)
+
+/** 当前页签展示的订单 */
+const orders = computed(() =>
+  activeStatus.value === 'all'
+    ? allOrders.value
+    : allOrders.value.filter((o) => o.status === Number(activeStatus.value))
+)
+
+/** 各状态订单数: 待付款/待发货/待收货等页签右上角红点角标 */
+const statusCount = computed<Record<number, number>>(() => {
+  const count: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 }
+  allOrders.value.forEach((o) => {
+    if (count[o.status] !== undefined) count[o.status]++
+  })
+  return count
+})
 
 // "去支付"状态: 记录要支付的待支付订单
 const payingOrder = ref<Order | null>(null)
@@ -181,19 +277,51 @@ function goProduct(item: Order['items'][number]) {
   router.push(`/product/${item.productId}`)
 }
 
-/** 再次购买: 按原购买数量加入购物车并跳转购物车 */
-function buyAgain(item: Order['items'][number]) {
-  addToCart(
-    {
-      id: item.productId,
-      name: item.productName,
-      mainImage: item.productImage,
-      price: item.price
-    },
-    item.count
-  )
-  ElMessage.success('已加入购物车')
-  router.push('/cart')
+/**
+ * 是否有进行中的退款申请(待审核/已通过/退款中)。
+ * 数据来自后端订单列表的 refundStatus 字段(一次查询批量填充), 有则不再显示"申请退款"。
+ */
+function isRefundActive(order: Order) {
+  return order.refundStatus != null && [1, 2, 4].includes(order.refundStatus)
+}
+
+/** 申请退款: 跳转到订单详情并自动打开退款弹窗(详情页复用完整的申请/图片上传逻辑) */
+function goRefund(order: Order) {
+  router.push({ path: `/order/${order.id}`, query: { refund: '1' } })
+}
+
+/** 查看退款记录 */
+function goRefundList() {
+  router.push('/refunds')
+}
+
+/** 评价: 跳转订单详情并自动打开对应商品的评价弹窗(详情页复用上传/提交逻辑) */
+function goReview(order: Order, item: Order['items'][number]) {
+  router.push({ path: `/order/${order.id}`, query: { review: String(item.id) } })
+}
+
+/** 再次购买: 按原购买数量加入购物车(后端接口)并跳转购物车 */
+async function buyAgain(item: Order['items'][number]) {
+  if (!userStore.isLoggedIn) {
+    ElMessage.warning('请先登录')
+    router.push('/login')
+    return
+  }
+  try {
+    await addToCart(
+      {
+        id: item.productId,
+        name: item.productName,
+        mainImage: item.productImage,
+        price: item.price
+      },
+      item.count
+    )
+    ElMessage.success('已加入购物车')
+    router.push('/cart')
+  } catch {
+    // 错误提示由拦截器处理(如已下架/库存不足)
+  }
 }
 
 /** 去支付: 打开支付弹窗(直接进入支付步骤, 选支付方式模拟支付) */
@@ -205,7 +333,7 @@ function goPay(order: any) {
 /** 取消待支付订单(后端会释放锁定的库存) */
 async function confirmCancel(order: any) {
   try {
-    await ElMessageBox.confirm('确定取消该订单吗? 已锁定的库存将被释放。', '取消订单', {
+    await ElMessageBox.confirm('确定取消该订单吗?', '取消订单', {
       type: 'warning'
     })
   } catch {
@@ -232,24 +360,20 @@ async function confirmReceive(order: any) {
   try {
     await confirmOrder(order.orderNo)
     ElMessage.success('已确认收货')
+    // 收货后订单进入"已完成", 自动切到该 tab 便于用户立即评价
+    activeStatus.value = '4'
     await load()
   } catch {
     // 失败提示由拦截器处理
   }
 }
 
-/** 切换状态 tab: 重新请求并回到第一页(列表目前不分页, 保留重置语义) */
-function onStatusChange() {
-  load()
-}
-
 async function load() {
   const userId = userStore.userInfo?.id
   if (!userId) return
-  const status = activeStatus.value === 'all' ? undefined : Number(activeStatus.value)
-  orders.value = await getMyOrders(userId, status)
+  allOrders.value = await getMyOrders(userId)
   // 为所有待支付订单注册倒计时, 实时显示"距自动取消还有多久"
-  orders.value.forEach((o) => {
+  allOrders.value.forEach((o) => {
     if (o.status === 1 && o.remainingSeconds != null) set(o.id, o.remainingSeconds)
   })
   start()
@@ -333,31 +457,44 @@ onMounted(load)
   background: var(--bg-card);
   padding: var(--space-4);
   border-radius: var(--radius-card);
+  border: 1px solid #eceef1;
   box-shadow: var(--shadow-card);
 }
+.head {
+  margin-bottom: 18px;
+}
 .title {
-  position: relative;
-  margin: 0 0 12px;
-  padding-left: 12px;
+  margin: 0;
   font-size: 20px;
+  font-weight: 600;
   color: var(--text-1);
 }
-.title::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 4px;
-  height: 18px;
-  border-radius: 2px;
-  background: var(--brand-primary);
+.head-desc {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: var(--text-3);
 }
 .status-tabs {
   margin-bottom: 8px;
 }
 .status-tabs :deep(.el-tabs__item) {
   font-size: 14px;
+}
+.tab-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.tab-badge :deep(.el-badge__content) {
+  position: static;
+  transform: none;
+  height: 16px;
+  line-height: 16px;
+  padding: 0 5px;
+  font-size: 11px;
+  font-weight: 500;
+  border: none;
+  background: var(--brand-danger);
 }
 .order-list {
   display: flex;
@@ -402,6 +539,9 @@ onMounted(load)
 .card-head .status-tag {
   margin-left: auto;
 }
+.card-head .refund-tag {
+  margin-left: 4px;
+}
 .card-goods {
   padding: 8px 16px;
 }
@@ -424,6 +564,11 @@ onMounted(load)
   background-color: var(--bg-soft);
 }
 .buy-again {
+  flex-shrink: 0;
+}
+/* 已完成的订单: 评价入口/已评价标签不参与压缩 */
+.eval-btn,
+.eval-tag {
   flex-shrink: 0;
 }
 .thumb {

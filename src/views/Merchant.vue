@@ -2,7 +2,10 @@
   <div v-loading="loading" class="merchant">
     <!-- 顶部: 标题 + 新增按钮 -->
     <div class="head">
-      <h2 class="title">🏪 商家中心</h2>
+      <div class="head-text">
+        <h2 class="title">商家中心</h2>
+        <p class="head-desc">管理商品、卖出订单与售后</p>
+      </div>
       <el-button type="primary" :icon="Plus" @click="openDialog()">新增商品</el-button>
     </div>
 
@@ -47,7 +50,29 @@
 
     <!-- 视图切换: 商品管理 / 卖出订单(路由保持 /merchant 不变) -->
     <el-tabs v-model="activeTab" class="tabs">
-      <el-tab-pane label="商品管理" name="products">
+      <el-tab-pane name="products">
+        <template #label><span class="tab-label">商品管理</span></template>
+    <div class="filter-bar">
+      <el-input
+        v-model="productName"
+        placeholder="按商品名称搜索"
+        clearable
+        style="width: 220px"
+        @keyup.enter="searchProducts"
+        @clear="searchProducts"
+      />
+      <el-select
+        v-model="productCategoryId"
+        placeholder="全部类型"
+        clearable
+        style="width: 200px"
+        @change="searchProducts"
+      >
+        <el-option v-for="c in categoryOptions" :key="c.value" :label="c.label" :value="c.value" />
+      </el-select>
+      <el-button type="primary" @click="searchProducts">查询</el-button>
+      <el-button @click="resetProducts">重置</el-button>
+    </div>
     <el-table v-if="list.length" :data="list">
       <el-table-column label="商品" min-width="260">
         <template #default="{ row }">
@@ -60,7 +85,7 @@
               preview-teleported
             >
               <template #error>
-                <div class="thumb-fallback">🎁</div>
+                <div class="thumb-fallback">暂无图片</div>
               </template>
             </el-image>
             <div class="goods-info">
@@ -112,7 +137,47 @@
     <el-empty v-if="!list.length && !loading" description="暂无商品,点击右上角新增" />
       </el-tab-pane>
 
-      <el-tab-pane label="卖出订单" name="sold">
+      <el-tab-pane name="sold">
+        <template #label><span class="tab-label">卖出订单</span></template>
+        <div class="filter-bar">
+          <el-select
+            v-model="soldLogisticsStatus"
+            placeholder="全部物流状态"
+            clearable
+            style="width: 170px"
+            @change="searchSold"
+          >
+            <el-option
+              v-for="(text, key) in logisticsStatusText"
+              :key="key"
+              :label="text"
+              :value="Number(key)"
+            >
+              <span class="option-row">
+                {{ text }}
+                <!-- 待发货选项带角标: 待处理数量一目了然 -->
+                <el-badge
+                  v-if="Number(key) === 0 && stats?.pendingShipCount"
+                  :value="stats.pendingShipCount"
+                  :max="99"
+                  class="option-badge"
+                />
+              </span>
+            </el-option>
+          </el-select>
+          <el-date-picker
+            v-model="soldDateRange"
+            type="daterange"
+            range-separator="-"
+            start-placeholder="开始"
+            end-placeholder="结束"
+            value-format="YYYY-MM-DD"
+            style="width: 210px"
+            @change="searchSold"
+          />
+          <el-button type="primary" @click="searchSold">查询</el-button>
+          <el-button @click="resetSold">重置</el-button>
+        </div>
         <el-table v-if="soldOrders.length" :data="soldOrders" v-loading="soldLoading">
           <el-table-column label="订单号" min-width="200">
             <template #default="{ row }">
@@ -146,7 +211,7 @@
                   lazy
                 >
                   <template #error>
-                    <div class="thumb-fallback sm-fallback">🎁</div>
+                    <div class="thumb-fallback sm-fallback">暂无图片</div>
                   </template>
                 </el-image>
                 <span class="goods-name sold-name">
@@ -208,7 +273,164 @@
           @current-change="onSoldPageChange"
         />
       </el-tab-pane>
+
+      <!-- 退款售后: 买家对本商家订单发起的退款申请, 由商家审核 -->
+      <el-tab-pane name="refund">
+        <template #label>
+          <span class="tab-label">
+            退款售后<el-badge v-if="pendingRefundCount" :value="pendingRefundCount" class="tab-badge" />
+          </span>
+        </template>
+        <div class="filter-bar">
+          <el-input
+            v-model="refundNo"
+            placeholder="按退款单号搜索"
+            clearable
+            style="width: 220px"
+            @keyup.enter="searchRefund"
+            @clear="searchRefund"
+          />
+          <el-select
+            v-model="refundStatus"
+            placeholder="全部状态"
+            clearable
+            style="width: 150px"
+            @change="searchRefund"
+          >
+            <el-option
+              v-for="(text, key) in refundStatusText"
+              :key="key"
+              :label="text"
+              :value="Number(key)"
+            />
+          </el-select>
+          <el-button type="primary" @click="searchRefund">查询</el-button>
+          <el-button @click="resetRefund">重置</el-button>
+        </div>
+
+        <el-table v-if="merchantRefunds.length" :data="merchantRefunds" v-loading="refundLoading">
+          <el-table-column prop="refundNo" label="退款单号" min-width="190" />
+          <el-table-column prop="orderNo" label="订单号" min-width="190" />
+          <el-table-column label="类型" width="100">
+            <template #default="{ row }">{{ refundTypeText[row.type] || '-' }}</template>
+          </el-table-column>
+          <el-table-column label="退款金额" width="110" align="right">
+            <template #default="{ row }">¥{{ Number(row.amount || 0).toFixed(2) }}</template>
+          </el-table-column>
+          <el-table-column label="状态" width="100" align="center">
+            <template #default="{ row }">
+              <el-tag :type="refundStatusType[row.status] || 'info'" size="small" effect="light" round>
+                {{ refundStatusText[row.status] || '未知' }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="申请时间" width="165">
+            <template #default="{ row }">{{ formatTime(row.applyTime) }}</template>
+          </el-table-column>
+          <el-table-column label="退款原因" min-width="180">
+            <template #default="{ row }">{{ row.reason || '-' }}</template>
+          </el-table-column>
+          <el-table-column label="操作" width="100" align="center">
+            <template #default="{ row }">
+              <el-button link type="primary" size="small" @click="openRefundAudit(row)">
+                {{ row.status === 1 ? '审核' : '查看' }}
+              </el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+        <el-empty
+          v-else-if="!refundLoading"
+          description="暂无退款申请,买家申请售后后在这里审核"
+        />
+        <el-pagination
+          v-if="refundTotal > refundSize"
+          class="pager"
+          background
+          layout="total, prev, pager, next"
+          :total="refundTotal"
+          :page-size="refundSize"
+          :current-page="refundPage"
+          @current-change="onRefundPageChange"
+        />
+      </el-tab-pane>
     </el-tabs>
+
+    <!-- 退款审核弹窗 -->
+    <el-dialog v-model="refundDialogVisible" title="退款审核" width="720px">
+      <div v-if="refundCurrent">
+        <el-descriptions :column="2" border>
+          <el-descriptions-item label="退款单号">{{ refundCurrent.refundNo }}</el-descriptions-item>
+          <el-descriptions-item label="订单号">{{ refundCurrent.orderNo }}</el-descriptions-item>
+          <el-descriptions-item label="退款金额">
+            ¥{{ Number(refundCurrent.amount || 0).toFixed(2) }}
+          </el-descriptions-item>
+          <el-descriptions-item label="退款类型">
+            {{ refundTypeText[refundCurrent.type] || '-' }}
+          </el-descriptions-item>
+          <el-descriptions-item label="状态">
+            <el-tag :type="refundStatusType[refundCurrent.status] || 'info'" size="small">
+              {{ refundStatusText[refundCurrent.status] || '未知' }}
+            </el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item label="申请时间">
+            {{ formatTime(refundCurrent.applyTime) }}
+          </el-descriptions-item>
+          <el-descriptions-item label="退款原因" :span="2">
+            {{ refundCurrent.reason || '-' }}
+          </el-descriptions-item>
+          <el-descriptions-item label="问题描述" :span="2">
+            {{ refundCurrent.description || '-' }}
+          </el-descriptions-item>
+          <el-descriptions-item v-if="refundCurrent.auditRemark" label="审核备注" :span="2">
+            {{ refundCurrent.auditRemark }}
+          </el-descriptions-item>
+        </el-descriptions>
+
+        <div v-if="refundCurrentImages.length" class="refund-images">
+          <div class="refund-images-title">凭证图片</div>
+          <div class="refund-image-list">
+            <el-image
+              v-for="(img, idx) in refundCurrentImages"
+              :key="img + idx"
+              :src="resolveImageUrl(img)"
+              fit="cover"
+              class="refund-proof-img"
+              :preview-src-list="refundCurrentImages.map(resolveImageUrl)"
+              :initial-index="idx"
+              preview-teleported
+            />
+          </div>
+        </div>
+
+        <template v-if="refundCurrent.status === 1">
+          <div class="refund-audit-title">审核操作</div>
+          <el-radio-group v-model="refundApproved">
+            <el-radio :value="true">通过并退款</el-radio>
+            <el-radio :value="false">拒绝申请</el-radio>
+          </el-radio-group>
+          <el-input
+            v-model="refundRemark"
+            type="textarea"
+            :rows="3"
+            maxlength="255"
+            show-word-limit
+            class="refund-remark"
+            :placeholder="refundApproved ? '审核备注(选填)' : '请填写拒绝原因(建议填写)'"
+          />
+        </template>
+      </div>
+      <template #footer>
+        <el-button @click="refundDialogVisible = false">关闭</el-button>
+        <el-button
+          v-if="refundCurrent && refundCurrent.status === 1"
+          type="primary"
+          :loading="refundSubmitting"
+          @click="submitRefundAudit"
+        >
+          提交审核
+        </el-button>
+      </template>
+    </el-dialog>
 
     <!-- 新增/编辑商品弹窗 -->
     <el-dialog v-model="dialogVisible" :title="form.id ? '编辑商品' : '新增商品'" width="560px">
@@ -236,7 +458,7 @@
         <el-form-item label="原价" prop="originalPrice">
           <el-input-number v-model="form.originalPrice" :min="0" :precision="2" :step="1" />
         </el-form-item>
-        <el-form-item v-if="!form.id" label="库存" prop="stock">
+        <el-form-item label="库存" prop="stock">
           <el-input-number v-model="form.stock" :min="0" :step="1" />
         </el-form-item>
 
@@ -258,7 +480,7 @@
               preview-teleported
             >
               <template #error>
-                <div class="preview-error">🎁</div>
+                <div class="preview-error">暂无图片</div>
               </template>
             </el-image>
           </div>
@@ -281,7 +503,7 @@
               <div v-for="(img, i) in detailImageList" :key="`${img}-${i}`" class="detail-thumb">
                 <el-image :src="resolveImageUrl(img)" fit="cover" class="detail-img">
                   <template #error>
-                    <div class="preview-error">🎁</div>
+                    <div class="preview-error">暂无图片</div>
                   </template>
                 </el-image>
                 <span class="thumb-del" title="删除" @click="removeDetail(i)">✕</span>
@@ -333,6 +555,15 @@ import {
   type MerchantSoldOrder,
   type MerchantStats
 } from '@/api/order'
+import {
+  merchantAuditRefund,
+  merchantGetRefunds,
+  refundImages,
+  refundStatusText,
+  refundStatusType,
+  refundTypeText,
+  type Refund
+} from '@/api/refund'
 import { resolveImageUrl, uploadImage } from '@/api/upload'
 import type { UploadRequestOptions } from 'element-plus'
 
@@ -340,6 +571,20 @@ const list = ref<MerchantProduct[]>([])
 const total = ref(0)
 const categories = ref<Category[]>([])
 const loading = ref(false)
+
+// ============ 商品筛选(名称模糊 + 分类, 分类包含子分类) ============
+const productName = ref('')
+const productCategoryId = ref<number | undefined>(undefined)
+
+function searchProducts() {
+  load()
+}
+
+function resetProducts() {
+  productName.value = ''
+  productCategoryId.value = undefined
+  load()
+}
 
 // ============ 视图切换(保持路由 /merchant 不变) ============
 const activeTab = ref('products')
@@ -365,15 +610,37 @@ const soldPage = ref(1)
 const soldSize = 10
 const soldLoading = ref(false)
 
+// 筛选: 物流状态 + 下单时间范围(日期选择器返回 yyyy-MM-dd)
+const soldLogisticsStatus = ref<number | undefined>(undefined)
+const soldDateRange = ref<string[] | null>(null)
+
 async function loadSold() {
   soldLoading.value = true
   try {
-    const page = await getSoldOrders(soldPage.value, soldSize)
+    const page = await getSoldOrders({
+      page: soldPage.value,
+      size: soldSize,
+      logisticsStatus: soldLogisticsStatus.value,
+      startTime: soldDateRange.value?.[0] ? `${soldDateRange.value[0]} 00:00:00` : undefined,
+      endTime: soldDateRange.value?.[1] ? `${soldDateRange.value[1]} 23:59:59` : undefined
+    })
     soldOrders.value = page.records
     soldTotal.value = page.total
   } finally {
     soldLoading.value = false
   }
+}
+
+function searchSold() {
+  soldPage.value = 1
+  loadSold()
+}
+
+function resetSold() {
+  soldLogisticsStatus.value = undefined
+  soldDateRange.value = null
+  soldPage.value = 1
+  loadSold()
 }
 
 function onSoldPageChange(p: number) {
@@ -425,6 +692,105 @@ async function doDeliver(item: MerchantSoldItem) {
   await Promise.all([loadSold(), loadStats()])
 }
 
+// ============ 退款售后(买家申请, 商家审核) ============
+const merchantRefunds = ref<Refund[]>([])
+const refundTotal = ref(0)
+/** 待审核退款数量: 用于"退款售后"页签红点角标 */
+const pendingRefundCount = ref(0)
+const refundPage = ref(1)
+const refundSize = 10
+const refundLoading = ref(false)
+const refundNo = ref('')
+const refundStatus = ref<number | undefined>(undefined)
+
+const refundDialogVisible = ref(false)
+const refundCurrent = ref<Refund | null>(null)
+const refundCurrentImages = computed(() => refundImages(refundCurrent.value?.images))
+const refundApproved = ref(true)
+const refundRemark = ref('')
+const refundSubmitting = ref(false)
+
+async function loadRefunds() {
+  refundLoading.value = true
+  try {
+    const data = await merchantGetRefunds({
+      page: refundPage.value,
+      size: refundSize,
+      refundNo: refundNo.value || undefined,
+      status: refundStatus.value
+    })
+    merchantRefunds.value = data.records
+    refundTotal.value = data.total
+  } finally {
+    refundLoading.value = false
+  }
+}
+
+function searchRefund() {
+  refundPage.value = 1
+  loadRefunds()
+}
+
+/** 查询待审核退款数量(只取 total, size=1 减少数据传输) */
+async function loadPendingRefundCount() {
+  try {
+    const data = await merchantGetRefunds({ page: 1, size: 1, status: 1 })
+    pendingRefundCount.value = data.total
+  } catch {
+    // 角标统计失败不影响主流程
+  }
+}
+
+function resetRefund() {
+  refundNo.value = ''
+  refundStatus.value = undefined
+  refundPage.value = 1
+  loadRefunds()
+}
+
+function onRefundPageChange(p: number) {
+  refundPage.value = p
+  loadRefunds()
+}
+
+function openRefundAudit(row: any) {
+  refundCurrent.value = row as Refund
+  refundApproved.value = true
+  refundRemark.value = ''
+  refundDialogVisible.value = true
+}
+
+async function submitRefundAudit() {
+  if (!refundCurrent.value) return
+  if (!refundApproved.value && !refundRemark.value.trim()) {
+    ElMessage.warning('拒绝退款时请填写拒绝原因')
+    return
+  }
+  if (refundApproved.value) {
+    try {
+      await ElMessageBox.confirm(
+        '通过后将立即退款给买家, 并将订单置为已退款, 是否继续?',
+        '确认退款',
+        { type: 'warning' }
+      )
+    } catch {
+      return
+    }
+  }
+  refundSubmitting.value = true
+  try {
+    await merchantAuditRefund(refundCurrent.value.id, {
+      approved: refundApproved.value,
+      remark: refundRemark.value
+    })
+    ElMessage.success(refundApproved.value ? '退款已通过' : '已拒绝该退款申请')
+    refundDialogVisible.value = false
+    await Promise.all([loadRefunds(), loadStats(), loadSold(), loadPendingRefundCount()])
+  } finally {
+    refundSubmitting.value = false
+  }
+}
+
 // ============ 分类:扁平化下拉选项 + id->名称映射 ============
 interface CategoryOption {
   value: number
@@ -456,7 +822,10 @@ async function load() {
   loading.value = true
   try {
     const [page, cats] = await Promise.all([
-      getMerchantProductList(),
+      getMerchantProductList({
+        name: productName.value || undefined,
+        categoryId: productCategoryId.value
+      }),
       categories.value.length ? Promise.resolve(categories.value) : getCategories()
     ])
     // 后端返回 Result.PageData: { total, records }
@@ -577,7 +946,8 @@ async function save() {
         price: form.price,
         originalPrice: form.originalPrice,
         mainImage: form.mainImage,
-        detailImages: form.detailImages
+        detailImages: form.detailImages,
+        stock: form.stock
       })
       ElMessage.success('商品已更新')
     } else {
@@ -604,47 +974,47 @@ onMounted(() => {
   load()
   loadStats()
   loadSold()
+  loadRefunds()
+  loadPendingRefundCount()
 })
 </script>
 
 <style scoped>
 .merchant {
   background: var(--bg-card);
-  padding: var(--space-4);
+  border: 1px solid #eceef1;
   border-radius: var(--radius-card);
+  padding: var(--space-4);
   box-shadow: var(--shadow-card);
 }
 .head {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
   margin-bottom: 20px;
 }
 .title {
-  position: relative;
   margin: 0;
-  padding-left: 12px;
   font-size: 20px;
+  font-weight: 600;
   color: var(--text-1);
 }
-.title::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 4px;
-  height: 18px;
-  border-radius: 2px;
-  background: var(--brand-primary);
+.head-desc {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: var(--text-3);
 }
 
 /* ---------- 统计条 ---------- */
 .stats {
   display: grid;
   grid-template-columns: repeat(5, 1fr);
-  gap: var(--space-3);
-  margin-bottom: 20px;
+  gap: 1px;
+  margin-bottom: 24px;
+  background: #eceef1;
+  border: 1px solid #eceef1;
+  border-radius: var(--radius-card);
+  overflow: hidden;
 }
 @media (max-width: 1100px) {
   .stats {
@@ -655,63 +1025,132 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 14px;
-  padding: 16px 20px;
-  background: var(--bg-soft);
-  border-radius: var(--radius-control);
-  transition: transform var(--transition-base), box-shadow var(--transition-base);
+  padding: 18px 20px;
+  background: var(--bg-card);
+  transition: background-color var(--transition-base);
 }
 .stat-card:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-card-hover);
+  background: var(--bg-soft);
 }
 .stat-icon {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 44px;
-  height: 44px;
-  border-radius: 12px;
-  color: #fff;
+  width: 38px;
+  height: 38px;
+  border-radius: var(--radius-control);
+  border: 1px solid #e8ebef;
+  color: var(--text-2);
   flex-shrink: 0;
 }
-.stat-icon.total {
-  background: var(--brand-gradient);
+.stat-icon.total,
+.stat-icon.goods {
+  color: var(--text-2);
 }
 .stat-icon.on {
-  background: linear-gradient(135deg, #2bd99f 0%, #00b578 100%);
+  color: var(--brand-success);
 }
 .stat-icon.off {
-  background: linear-gradient(135deg, #b6bec8 0%, #86909c 100%);
+  color: var(--text-3);
+}
+.stat-icon.pending {
+  color: var(--brand-warning);
 }
 .stat-num {
-  font-size: 26px;
-  font-weight: 700;
+  font-size: 22px;
+  font-weight: 600;
   line-height: 1.2;
   color: var(--text-1);
 }
 .stat-label {
+  margin-top: 2px;
   font-size: 13px;
   color: var(--text-3);
 }
-/* 总销售额大卡片: 金额主色加粗 */
-.sales-card {
-  background: var(--brand-primary-bg);
-}
+/* 总销售额: 数字用等宽感强调, 不加底色 */
 .sales-num {
-  font-size: 28px;
-  color: var(--brand-primary);
-  font-weight: 700;
-}
-.stat-icon.pending {
-  background: linear-gradient(135deg, #ffc069 0%, #fa8c16 100%);
-}
-.stat-icon.goods {
-  background: var(--brand-gradient);
+  font-size: 24px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-1);
+  font-weight: 600;
 }
 
 /* ---------- 视图页签 ---------- */
 .tabs :deep(.el-tabs__header) {
   margin-bottom: 16px;
+}
+.tab-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+/* 下拉选项内的行内角标(不遮挡选项文字) */
+.option-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.option-badge :deep(.el-badge__content) {
+  position: static;
+  transform: none;
+  height: 16px;
+  line-height: 16px;
+  padding: 0 5px;
+  font-size: 11px;
+  font-weight: 500;
+  border: none;
+  background: var(--brand-danger);
+}
+.tab-badge :deep(.el-badge__content) {
+  position: static;
+  transform: none;
+  height: 16px;
+  line-height: 16px;
+  padding: 0 5px;
+  font-size: 11px;
+  font-weight: 500;
+  border: none;
+  background: var(--brand-danger);
+}
+
+/* ---------- 筛选栏 ---------- */
+.filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+/* ---------- 退款审核弹窗 ---------- */
+.refund-images {
+  margin-top: 16px;
+}
+.refund-images-title {
+  font-weight: 600;
+  color: var(--text-1);
+  margin-bottom: 8px;
+}
+.refund-image-list {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.refund-proof-img {
+  width: 96px;
+  height: 96px;
+  border-radius: 6px;
+  background: var(--bg-soft);
+  cursor: pointer;
+}
+.refund-audit-title {
+  margin: 18px 0 10px;
+  font-weight: 600;
+  color: var(--text-1);
+}
+.refund-remark {
+  margin-top: 12px;
 }
 
 /* ---------- 卖出订单表格 ---------- */

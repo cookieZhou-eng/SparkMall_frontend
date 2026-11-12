@@ -3,7 +3,7 @@
     <div class="img-wrap" @click="goDetail">
       <el-image :src="resolveImageUrl(product.mainImage)" fit="cover" class="img" lazy>
         <template #error>
-          <div class="img-fallback">🎁</div>
+          <div class="img-fallback">暂无图片</div>
         </template>
       </el-image>
     </div>
@@ -35,22 +35,34 @@ import { ShoppingCart } from '@element-plus/icons-vue'
 import type { Product } from '@/api/product'
 import { resolveImageUrl } from '@/api/upload'
 import { addToCart } from '@/utils/cart'
+import { useUserStore } from '@/stores/user'
 
 const props = defineProps<{ product: Product }>()
 const router = useRouter()
+const userStore = useUserStore()
 
 function goDetail() {
   router.push(`/product/${props.product.id}`)
 }
 
-function onAddCart() {
-  addToCart({
-    id: props.product.id,
-    name: props.product.name,
-    mainImage: props.product.mainImage,
-    price: props.product.price
-  })
-  ElMessage.success('已加入购物车')
+/** 加购改为后端接口: 未登录先引导登录, 业务错误由 axios 拦截器统一提示 */
+async function onAddCart() {
+  if (!userStore.isLoggedIn) {
+    ElMessage.warning('请先登录')
+    router.push('/login')
+    return
+  }
+  try {
+    await addToCart({
+      id: props.product.id,
+      name: props.product.name,
+      mainImage: props.product.mainImage,
+      price: props.product.price
+    })
+    ElMessage.success('已加入购物车')
+  } catch {
+    // 错误提示由请求拦截器统一处理(如库存不足/已下架)
+  }
 }
 </script>
 
@@ -62,12 +74,12 @@ function onAddCart() {
   transition: transform var(--transition-base), box-shadow var(--transition-base);
 }
 .product-card:hover {
-  transform: translateY(-4px);
+  border-color: #ffd3c5;
   box-shadow: var(--shadow-card-hover);
 }
 .img-wrap {
   width: 100%;
-  height: 220px;
+  aspect-ratio: 1 / 1;
   background: var(--bg-soft);
   overflow: hidden;
 }
@@ -86,7 +98,8 @@ function onAddCart() {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 48px;
+  font-size: 13px;
+  color: var(--text-3);
   background: var(--bg-soft);
 }
 .info {

@@ -93,7 +93,7 @@
         </div>
       </div>
 
-      <div class="timeout-note">⏱️ 订单待支付 30 分钟内未支付将自动关闭并释放锁定的库存</div>
+      <div class="timeout-note">⏱️ 订单待支付 30 分钟内未支付将自动关闭</div>
     </template>
 
     <!-- 步骤二: 选择支付方式并支付 -->
@@ -120,7 +120,7 @@
         </div>
       </div>
 
-      <div class="timeout-note">⏱️ 订单待支付 30 分钟内未支付将自动关闭并释放锁定的库存</div>
+      <div class="timeout-note">⏱️ 订单待支付 30 分钟内未支付将自动关闭</div>
     </template>
 
     <!-- 底部按钮 -->

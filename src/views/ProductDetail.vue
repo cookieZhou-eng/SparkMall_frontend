@@ -44,6 +44,58 @@
       </div>
     </div>
 
+    <!-- 商品评价: 平均分 + 分页列表(公开接口) -->
+    <div v-if="product" class="review-card">
+      <div class="review-head">
+        <h3>商品评价</h3>
+        <div v-if="reviewStats.total > 0" class="review-summary">
+          <el-rate :model-value="reviewStats.avgRating" disabled allow-half />
+          <span class="avg">{{ reviewStats.avgRating.toFixed(1) }}</span>
+          <span class="count">共 {{ reviewStats.total }} 条</span>
+        </div>
+        <span v-else class="no-review">暂无评价</span>
+      </div>
+
+      <div v-for="r in reviews" :key="r.id" class="review-item">
+        <div class="review-top">
+          <span class="review-user">{{ r.username || (r.anonymous ? '匿名用户' : '已购用户') }}</span>
+          <el-rate :model-value="r.rating" disabled size="small" />
+          <span class="review-type" :class="typeClass(r.rating)">{{ typeText(r.rating) }}</span>
+          <span class="review-time">{{ formatTime(r.createTime) }}</span>
+        </div>
+        <p v-if="r.content" class="review-content">{{ r.content }}</p>
+        <!-- 未写文字评价: 系统默认好评(后端虚拟生成, 星数即用户真实评分, 无默认低星) -->
+        <p v-else class="review-default">默认好评, 用户未填写文字评价</p>
+        <div v-if="splitImages(r.images).length" class="review-imgs">
+          <el-image
+            v-for="(img, idx) in splitImages(r.images)"
+            :key="img + idx"
+            :src="resolveImageUrl(img)"
+            fit="cover"
+            class="review-img"
+            :preview-src-list="splitImages(r.images).map(resolveImageUrl)"
+            :initial-index="idx"
+            preview-teleported
+          />
+        </div>
+      </div>
+
+      <el-empty
+        v-if="reviews.length === 0"
+        :image-size="60"
+        description="还没有评价, 购买后来说两句吧"
+      />
+      <el-pagination
+        v-if="reviewStats.total > reviewPageSize"
+        class="review-pager"
+        layout="prev, pager, next"
+        :current-page="reviewPage"
+        :page-size="reviewPageSize"
+        :total="reviewStats.total"
+        @current-change="onReviewPage"
+      />
+    </div>
+
     <el-empty v-else-if="!loading" description="商品不存在" />
 
     <!-- 商家信息弹窗 -->
@@ -87,6 +139,13 @@ import { resolveImageUrl } from '@/api/upload'
 import { addToCart } from '@/utils/cart'
 import { useUserStore } from '@/stores/user'
 import PaymentDialog from '@/components/PaymentDialog.vue'
+import {
+  getProductReviews,
+  getProductReviewStats,
+  reviewImages as splitImages,
+  type Review,
+  type ReviewStats
+} from '@/api/review'
 
 const route = useRoute()
 const router = useRouter()
@@ -97,6 +156,12 @@ const loading = ref(false)
 const payVisible = ref(false)
 const merchant = ref<MerchantVO | null>(null)
 const merchantVisible = ref(false)
+
+// 商品评价
+const reviewStats = ref<ReviewStats>({ avgRating: 0, total: 0 })
+const reviews = ref<Review[]>([])
+const reviewPage = ref(1)
+const reviewPageSize = 5
 
 async function load() {
   loading.value = true
@@ -109,6 +174,9 @@ async function load() {
         .then((info) => (merchant.value = info))
         .catch(() => undefined)
     }
+    if (product.value) {
+      loadReviews()
+    }
   } catch {
     // 静默
   } finally {
@@ -116,18 +184,54 @@ async function load() {
   }
 }
 
-function onAddCart() {
+/** 加载评价统计 + 当前页评价(公开接口, 失败不阻断商品展示) */
+async function loadReviews() {
+  const id = Number(route.params.id)
+  try {
+    const [stats, page] = await Promise.all([
+      getProductReviewStats(id),
+      getProductReviews(id, reviewPage.value, reviewPageSize)
+    ])
+    reviewStats.value = stats || { avgRating: 0, total: 0 }
+    reviews.value = page?.records || []
+  } catch {
+    reviewStats.value = { avgRating: 0, total: 0 }
+    reviews.value = []
+  }
+}
+
+function onReviewPage(page: number) {
+  reviewPage.value = page
+  loadReviews()
+}
+
+function formatTime(time?: string | null) {
+  if (!time) return ''
+  return new Date(time).toLocaleDateString()
+}
+
+/** 加购改为后端接口: 未登录先引导登录, 业务错误由 axios 拦截器统一提示 */
+async function onAddCart() {
   if (!product.value) return
-  addToCart(
-    {
-      id: product.value.id,
-      name: product.value.name,
-      mainImage: product.value.mainImage,
-      price: product.value.price
-    },
-    quantity.value
-  )
-  ElMessage.success('已加入购物车')
+  if (!userStore.isLoggedIn) {
+    ElMessage.warning('请先登录')
+    router.push('/login')
+    return
+  }
+  try {
+    await addToCart(
+      {
+        id: product.value.id,
+        name: product.value.name,
+        mainImage: product.value.mainImage,
+        price: product.value.price
+      },
+      quantity.value
+    )
+    ElMessage.success('已加入购物车')
+  } catch {
+    // 错误提示由请求拦截器统一处理(如库存不足/已下架)
+  }
 }
 
 function buyNow() {
@@ -151,6 +255,18 @@ function goShop() {
   if (product.value?.merchantId) {
     router.push(`/shop/${product.value.merchantId}`)
   }
+}
+
+/** 星级 → 评价类型文案(主流电商口径: 4~5 星好评, 3 星中评, 1~2 星差评) */
+function typeText(rating: number): string {
+  if (rating >= 4) return '好评'
+  if (rating === 3) return '中评'
+  return '差评'
+}
+function typeClass(rating: number): string {
+  if (rating >= 4) return 'is-good'
+  if (rating === 3) return 'is-mid'
+  return 'is-bad'
 }
 
 onMounted(load)
@@ -291,5 +407,107 @@ onMounted(load)
 }
 .actions :deep(.el-button) {
   flex: 1;
+}
+/* 商品评价 */
+.review-card {
+  margin-top: var(--space-3);
+  background: var(--bg-card);
+  padding: var(--space-4);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+}
+.review-head {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  margin-bottom: 12px;
+}
+.review-head h3 {
+  margin: 0;
+  font-size: 18px;
+  color: var(--text-1);
+}
+.review-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.avg {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--brand-primary);
+}
+.count,
+.no-review {
+  font-size: 13px;
+  color: var(--text-3);
+}
+.review-item {
+  padding: 12px 0;
+  border-top: 1px solid #f0f1f3;
+}
+.review-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.review-user {
+  font-size: 13px;
+  color: var(--text-2);
+}
+/* 评价类型标签: 好评/中评/差评 */
+.review-type {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 1px 8px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+.review-type.is-good {
+  color: #1a9c6b;
+  background: #e6f7f0;
+}
+.review-type.is-mid {
+  color: #d48806;
+  background: #fff7e6;
+}
+.review-type.is-bad {
+  color: #d43030;
+  background: #fdeaea;
+}
+.review-time {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--text-3);
+}
+.review-content {
+  margin: 8px 0 0;
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--text-1);
+  word-break: break-all;
+}
+/* 默认好评: 灰色斜体弱化展示 */
+.review-default {
+  margin: 8px 0 0;
+  font-size: 12px;
+  font-style: italic;
+  color: #a3a8b0;
+}
+.review-imgs {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+.review-img {
+  width: 84px;
+  height: 84px;
+  border-radius: 6px;
+  background: var(--bg-soft);
+  cursor: pointer;
+}
+.review-pager {
+  justify-content: center;
+  margin-top: 12px;
 }
 </style>

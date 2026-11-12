@@ -2,7 +2,10 @@
   <el-container class="layout">
     <el-header class="header">
       <div class="header-inner">
-        <div class="logo" @click="router.push('/home')">🔥 星火商城</div>
+        <div class="logo" @click="router.push('/home')">
+          <span class="logo-mark">星</span>
+          <span>星火商城</span>
+        </div>
 
         <!-- 全局搜索入口: 回车/点搜索按钮跳搜索结果页(区分商品/商家) -->
         <el-input
@@ -26,25 +29,41 @@
         >
           <el-menu-item index="/home">首页</el-menu-item>
           <el-menu-item index="/seckill">限时秒杀</el-menu-item>
-          <el-menu-item index="/cart">购物车</el-menu-item>
-          <el-menu-item index="/orders">我的订单</el-menu-item>
+          <el-menu-item index="/cart" class="cart-menu">
+            购物车
+            <el-badge
+              v-if="cartCount > 0"
+              :value="cartCount"
+              :max="99"
+              class="cart-badge"
+            />
+          </el-menu-item>
+          <el-menu-item index="/orders" class="badge-menu">
+            <span>我的订单</span>
+            <el-badge v-if="orderBadge > 0" :value="orderBadge" :max="99" class="nav-badge" />
+          </el-menu-item>
           <el-menu-item index="/address">收货地址</el-menu-item>
-          <el-menu-item v-if="userStore.isMerchant" index="/merchant">商家中心</el-menu-item>
+          <el-menu-item v-if="userStore.isMerchant" index="/merchant" class="badge-menu">
+            <span>商家中心</span>
+            <el-badge v-if="merchantBadge > 0" :value="merchantBadge" :max="99" class="nav-badge" />
+          </el-menu-item>
         </el-menu>
 
         <div class="user-area">
           <template v-if="userStore.isLoggedIn">
             <el-dropdown @command="onCommand">
               <span class="user-trigger">
-                <el-avatar :src="userStore.userInfo?.avatar || undefined" :size="32">
+                <el-avatar :src="resolveImageUrl(userStore.userInfo?.avatar) || undefined" :size="32">
                   {{ avatarText }}
                 </el-avatar>
-                <span class="nickname">{{ userStore.userInfo?.nickname || '用户' }}</span>
+                <span class="nickname">{{ userStore.userInfo?.nickname || userStore.userInfo?.username || '用户' }}</span>
                 <el-icon><ArrowDown /></el-icon>
               </span>
               <template #dropdown>
                 <el-dropdown-menu>
                   <el-dropdown-item command="profile">个人中心</el-dropdown-item>
+                  <el-dropdown-item command="switch">切换账号</el-dropdown-item>
+                  <el-dropdown-item command="refunds">退款/售后</el-dropdown-item>
                   <el-dropdown-item command="logout" divided>退出登录</el-dropdown-item>
                 </el-dropdown-menu>
               </template>
@@ -64,16 +83,57 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ArrowDown, Search } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
+import { resolveImageUrl } from '@/api/upload'
+import { getCartCount } from '@/utils/cart'
+import { getMyOrders, getMerchantStats } from '@/api/order'
 
 const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
 
 const searchKeyword = ref('')
+const cartCount = ref(0)
+/** 我的订单角标: 待付款 + 待发货 + 待收货 的订单数 */
+const orderBadge = ref(0)
+/** 商家中心角标: 待发货明细数 */
+const merchantBadge = ref(0)
+
+/** 购物车角标: 未登录不请求(否则 401 会触发跳登录); 路由变化后刷新 */
+async function refreshCartCount() {
+  if (!userStore.isLoggedIn) {
+    cartCount.value = 0
+    return
+  }
+  cartCount.value = await getCartCount()
+}
+
+/** 订单类角标: 路由变化时刷新, 保证下单/支付/发货后回到任意页都能看到最新数量 */
+async function refreshOrderBadges() {
+  if (!userStore.isLoggedIn || !userStore.userInfo?.id) {
+    orderBadge.value = 0
+    merchantBadge.value = 0
+    return
+  }
+  try {
+    const [orders, stats] = await Promise.all([
+      getMyOrders(userStore.userInfo.id),
+      userStore.isMerchant ? getMerchantStats() : Promise.resolve(null)
+    ])
+    orderBadge.value = orders.filter((o) => [1, 2, 3].includes(o.status)).length
+    merchantBadge.value = stats?.pendingShipCount ?? 0
+  } catch {
+    // 角标失败不打断页面主流程
+  }
+}
+
+watch(() => route.fullPath, refreshCartCount)
+watch(() => route.fullPath, refreshOrderBadges)
+watch(() => userStore.isLoggedIn, refreshCartCount)
+watch(() => userStore.isLoggedIn, refreshOrderBadges)
 
 /** 跳转搜索结果页(区分商品/商家 tab) */
 function goSearch() {
@@ -99,6 +159,8 @@ onMounted(async () => {
       // 拉取失败(token 失效等)由响应拦截器统一处理
     }
   }
+  refreshCartCount()
+  refreshOrderBadges()
 })
 
 // el-dropdown 的 command 事件载荷类型为 string | number | object
@@ -110,6 +172,10 @@ function onCommand(cmd: string | number | object) {
     router.push('/login')
   } else if (command === 'profile') {
     router.push('/profile')
+  } else if (command === 'switch') {
+    router.push('/switch-account')
+  } else if (command === 'refunds') {
+    router.push('/refunds')
   }
 }
 </script>
@@ -124,7 +190,7 @@ function onCommand(cmd: string | number | object) {
   z-index: 100;
   padding: 0;
   background: var(--bg-card);
-  box-shadow: var(--shadow-card);
+  border-bottom: 1px solid #eceef1;
 }
 .header-inner {
   max-width: 1200px;
@@ -135,9 +201,12 @@ function onCommand(cmd: string | number | object) {
   padding: 0 16px;
 }
 .logo {
-  font-size: 20px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 19px;
   font-weight: 700;
-  color: var(--brand-primary);
+  color: var(--text-1);
   cursor: pointer;
   white-space: nowrap;
   margin-right: 24px;
@@ -145,6 +214,19 @@ function onCommand(cmd: string | number | object) {
 }
 .logo:hover {
   opacity: 0.85;
+}
+/* 文字标识代替 emoji, 更接近真实商城的品牌 logo */
+.logo-mark {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  background: var(--brand-primary);
+  color: #fff;
+  font-size: 16px;
+  font-weight: 700;
 }
 .header-search {
   width: 260px;
@@ -166,6 +248,38 @@ function onCommand(cmd: string | number | object) {
 }
 .nav-menu :deep(.el-menu-item.is-active) {
   border-bottom: 2px solid var(--brand-primary);
+}
+.cart-menu {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.cart-badge {
+  margin-left: 2px;
+}
+.cart-badge :deep(.el-badge__content) {
+  transform: translateY(-10px);
+}
+/* 导航角标: 订单/商家中心, 用小号红点数字, 不撑高菜单 */
+.badge-menu {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.nav-badge {
+  display: inline-flex;
+  align-items: center;
+}
+.nav-badge :deep(.el-badge__content) {
+  position: static;
+  transform: none;
+  height: 16px;
+  line-height: 16px;
+  padding: 0 5px;
+  font-size: 11px;
+  font-weight: 500;
+  border: none;
+  background: var(--brand-danger);
 }
 .user-area {
   display: flex;

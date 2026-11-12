@@ -20,6 +20,8 @@ export interface OrderItem {
   shipTime?: string | null
   /** 送达时间 */
   deliveryTime?: string | null
+  /** 是否已评价(订单详情接口填充, 用于置灰评价按钮) */
+  reviewed?: boolean
 }
 
 /** 订单 */
@@ -39,6 +41,10 @@ export interface Order {
   items: OrderItem[]
   /** 待支付剩余秒数(仅 status=1 时有值, 服务端按 createTime+超时时间计算, 前端据此倒计时) */
   remainingSeconds?: number | null
+  /** 最近一次退款申请状态(订单列表接口填充): 1-待审核 2-已通过 3-已拒绝 4-退款中 5-已退款 */
+  refundStatus?: number | null
+  /** 最近一次退款单号 */
+  refundNo?: string | null
 }
 
 /** 下单请求参数 */
@@ -112,7 +118,8 @@ export const orderStatusText: Record<number, string> = {
   2: '已支付',
   3: '已发货',
   4: '已签收',
-  5: '已取消'
+  5: '已取消',
+  6: '已退款'
 }
 
 /** 订单状态 → el-tag 类型(颜色) */
@@ -121,7 +128,8 @@ export const orderStatusType: Record<number, 'warning' | 'success' | 'primary' |
   2: 'success',
   3: 'primary',
   4: 'success',
-  5: 'info'
+  5: 'info',
+  6: 'danger'
 }
 
 // ==================== 商家卖出订单 ====================
@@ -167,9 +175,18 @@ export interface MerchantStats {
   paidOrderCount: number
 }
 
-/** GET /order/merchant/sold 商家卖出订单(按明细分页, 同一订单多明细合并) */
-export const getSoldOrders = (page = 1, size = 10) =>
-  http.get<PageData<MerchantSoldOrder>>('/order/merchant/sold', { page, size })
+/** GET /order/merchant/sold 商家卖出订单(按明细分页, 同一订单多明细合并, 可按物流状态/下单时间筛选) */
+export const getSoldOrders = (
+  params: {
+    page?: number
+    size?: number
+    logisticsStatus?: number
+    /** 下单时间起: yyyy-MM-dd HH:mm:ss */
+    startTime?: string
+    /** 下单时间止: yyyy-MM-dd HH:mm:ss */
+    endTime?: string
+  } = {}
+) => http.get<PageData<MerchantSoldOrder>>('/order/merchant/sold', params)
 
 /** PUT /order/merchant/item/{id}/ship 商家发货(明细 待发货→已发货) */
 export const shipOrderItem = (itemId: number) =>

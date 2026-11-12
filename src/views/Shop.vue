@@ -1,25 +1,53 @@
 <template>
   <div v-loading="loading" class="shop">
-    <!-- 店铺头部横幅(复用个人中心渐变横幅风格) -->
+    <!-- 店铺头部横幅(白底描边 + 品牌渐变顶线 + 星火水印, 与个人中心风格一致) -->
     <div v-if="merchant" class="banner">
       <el-avatar
         :src="resolveImageUrl(merchant.avatar) || undefined"
-        :size="88"
+        :size="80"
         class="banner-avatar"
       >
         {{ avatarText }}
       </el-avatar>
       <div class="banner-meta">
         <div class="shop-name">{{ merchant.shopName || '未命名店铺' }}</div>
-        <div class="meta-line">店主:{{ merchant.username }}</div>
+        <div class="meta-line">店主:{{ merchant.username }} · 开店于 {{ (merchant.createTime || '').slice(0, 10) || '—' }}</div>
         <div class="meta-line shop-desc" :title="merchant.shopDesc || ''">
           {{ merchant.shopDesc || '商家暂未填写店铺简介' }}
         </div>
-        <div class="meta-line">开店时间:{{ merchant.createTime || '—' }}</div>
-        <div class="meta-line sales-line">
-          累计销售额:<span class="sales-num">¥{{ formatSales(merchant.totalSales) }}</span>
+        <div class="stat-line">
+          <span class="stat-item">
+            <span class="stat-num">{{ formatCount(merchant.totalSalesCount) }}</span>
+            <span class="stat-label">累计销售量(件)</span>
+          </span>
+          <!-- 好评率: 全部商品评价中 4~5 星占比(公开); 无评价时后端返回 null 不展示 -->
+          <template v-if="merchant.positiveRate != null">
+            <span class="stat-divider" />
+            <span class="stat-item">
+              <span class="stat-num">{{ merchant.positiveRate }}<i class="pct">%</i></span>
+              <span class="stat-label">好评率</span>
+            </span>
+          </template>
+          <!-- 累计销售额仅商家本人可见(后端对非本人返回 null) -->
+          <template v-if="merchant.totalSales != null">
+            <span class="stat-divider" />
+            <span class="stat-item">
+              <span class="stat-num">{{ formatCount(merchant.totalSales) }}</span>
+              <span class="stat-label">累计销售额(元)</span>
+            </span>
+          </template>
         </div>
       </div>
+      <!-- 收藏店铺: 未登录跳登录页, 已收藏可一键取消 -->
+      <el-button
+        :type="followed ? 'default' : 'primary'"
+        :icon="followed ? StarFilled : Star"
+        class="follow-btn"
+        round
+        @click="toggleFollow"
+      >
+        {{ followed ? '已收藏' : '收藏店铺' }}
+      </el-button>
     </div>
     <el-empty v-else-if="!loading" description="商家不存在" />
 
@@ -38,28 +66,32 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
+import { Star, StarFilled } from '@element-plus/icons-vue'
+import { ElMessage } from 'element-plus'
 import ProductCard from '@/components/ProductCard.vue'
 import { getProductsByMerchant, type Product } from '@/api/product'
-import { getMerchantInfo, type MerchantVO } from '@/api/user'
+import { getMerchantInfo, isFollowedMerchant, followMerchant, unfollowMerchant, type MerchantVO } from '@/api/user'
 import { resolveImageUrl } from '@/api/upload'
+import { useUserStore } from '@/stores/user'
 
 const route = useRoute()
+const router = useRouter()
+const userStore = useUserStore()
 const merchant = ref<MerchantVO | null>(null)
 const products = ref<Product[]>([])
 const loading = ref(false)
 const productsLoading = ref(false)
+/** 是否已收藏该店铺(未登录恒为 false) */
+const followed = ref(false)
 
 const avatarText = computed(
   () => (merchant.value?.shopName || merchant.value?.username || '店').charAt(0)
 )
 
-/** 累计销售额格式化(后端 BigDecimal 可能以数字返回, 统一转数字再保留两位小数) */
-function formatSales(v: number | string | null | undefined): string {
-  return Number(v ?? 0).toLocaleString('zh-CN', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2
-  })
+/** 数量/金额格式化: 整数千分位(销售量件数与销售额元数都不带小数, 界面更干净) */
+function formatCount(v: number | string | null | undefined): string {
+  return Number(v ?? 0).toLocaleString('zh-CN')
 }
 
 async function loadMerchant() {
@@ -70,6 +102,35 @@ async function loadMerchant() {
     // 拦截器已弹错误,这里静默(商家不存在时展示空状态)
   } finally {
     loading.value = false
+  }
+}
+
+/** 登录用户进入店铺页时拉取收藏状态(未登录跳过, 不弹 401) */
+async function loadFollowStatus() {
+  if (!userStore.isLoggedIn || !merchant.value) return
+  try {
+    followed.value = await isFollowedMerchant(merchant.value.id)
+  } catch {
+    // 静默: 状态拉取失败不影响浏览
+  }
+}
+
+/** 收藏/取消收藏(幂等, 后端兜底防重复) */
+async function toggleFollow() {
+  if (!merchant.value) return
+  if (!userStore.isLoggedIn) {
+    ElMessage.warning('请先登录后再收藏')
+    router.push({ path: '/login', query: { redirect: route.fullPath } })
+    return
+  }
+  if (followed.value) {
+    await unfollowMerchant(merchant.value.id)
+    followed.value = false
+    ElMessage.success('已取消收藏')
+  } else {
+    await followMerchant(merchant.value.id)
+    followed.value = true
+    ElMessage.success('收藏成功,可在个人中心查看')
   }
 }
 
@@ -89,14 +150,15 @@ watch(
   () => route.params.id,
   (id, old) => {
     if (id && id !== old) {
-      loadMerchant()
+      followed.value = false
+      loadMerchant().then(loadFollowStatus)
       loadProducts()
     }
   }
 )
 
 onMounted(() => {
-  loadMerchant()
+  loadMerchant().then(loadFollowStatus)
   loadProducts()
 })
 </script>
@@ -107,7 +169,7 @@ onMounted(() => {
   flex-direction: column;
   gap: var(--space-3);
 }
-/* ---------- 渐变横幅(与 Profile.vue 一致) ---------- */
+/* ---------- 店铺横幅(白底描边 + 品牌渐变顶线 + 星火水印, 与 Profile 一致) ---------- */
 .banner {
   position: relative;
   display: flex;
@@ -115,28 +177,40 @@ onMounted(() => {
   gap: 24px;
   padding: 28px 32px;
   border-radius: var(--radius-card);
-  background: var(--brand-gradient);
+  background: var(--bg-card);
+  border: 1px solid #eceef1;
+  box-shadow: var(--shadow-card);
   overflow: hidden;
-  color: #fff;
 }
-/* 柔光装饰 */
-.banner::after {
+/* 顶线: 3px 品牌渐变, 点出星火品牌色 */
+.banner::before {
   content: '';
   position: absolute;
-  right: -60px;
-  top: -80px;
-  width: 220px;
-  height: 220px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.12);
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: var(--brand-gradient);
+}
+/* 星火水印: 右侧四角星形, 极低透明度不抢信息 */
+.banner::after {
+  content: '✦';
+  position: absolute;
+  right: 96px;
+  top: -34px;
+  font-size: 150px;
+  line-height: 1;
+  color: var(--brand-primary);
+  opacity: 0.05;
+  transform: rotate(18deg);
   pointer-events: none;
 }
 .banner-avatar {
   flex-shrink: 0;
-  border: 3px solid rgba(255, 255, 255, 0.9);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
-  font-size: 32px;
-  background: rgba(255, 255, 255, 0.25);
+  border: 1px solid #e8ebef;
+  background: var(--bg-soft);
+  color: var(--text-2);
+  font-size: 28px;
 }
 .banner-meta {
   flex: 1;
@@ -144,34 +218,62 @@ onMounted(() => {
 }
 .shop-name {
   font-size: 22px;
-  font-weight: 700;
-  margin-bottom: 8px;
+  font-weight: 600;
+  color: var(--text-1);
+  margin-bottom: 6px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .meta-line {
   font-size: 13px;
-  opacity: 0.92;
+  color: var(--text-3);
   line-height: 1.9;
 }
 .shop-desc {
   max-width: 560px;
-  opacity: 0.85;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* 累计销售额: 横幅内白色高亮展示 */
-.sales-line {
-  margin-top: 2px;
+/* 销售量/销售额: 数字在上标签在下, 并排两栏 */
+.stat-line {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  margin-top: 10px;
 }
-.sales-num {
-  margin-left: 4px;
-  font-size: 18px;
-  font-weight: 700;
-  color: #fff;
-  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
+.stat-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.stat-num {
+  font-size: 22px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-1);
+}
+.stat-num .pct {
+  font-style: normal;
+  font-size: 13px;
+  margin-left: 2px;
+  color: var(--text-3);
+}
+.stat-label {
+  font-size: 13px;
+  color: var(--text-3);
+}
+.stat-divider {
+  width: 1px;
+  height: 22px;
+  background: #e8ebef;
+}
+/* 收藏店铺按钮 */
+.follow-btn {
+  flex-shrink: 0;
+  align-self: flex-start;
+  margin-top: 6px;
 }
 /* ---------- 商品区 ---------- */
 .section-title {

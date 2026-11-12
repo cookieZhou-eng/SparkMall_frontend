@@ -90,8 +90,9 @@ async function onSubmit() {
   try {
     await userStore.login({ ...form })
     ElMessage.success('登录成功')
-    // 登录后回到来源页(由路由守卫带入),无来源则回首页
-    const redirect = (route.query.redirect as string) || '/home'
+    // 登录后回到来源页(由路由守卫带入); 无来源时管理员进后台, 其他角色进商城首页
+    const redirect = (route.query.redirect as string)
+      || (userStore.userInfo?.role === 'admin' ? '/admin/dashboard' : '/home')
     router.replace(redirect)
   } catch {
     // 错误消息由响应拦截器统一弹出
